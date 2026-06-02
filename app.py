@@ -15,7 +15,6 @@ import math
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from plotly.subplots import make_subplots
 import dash
 from dash import dcc, html, Input, Output, dash_table
 import pymysql
