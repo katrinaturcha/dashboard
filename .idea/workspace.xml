@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="matplotlib" />
+    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="currency" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -256,7 +256,15 @@
       <option name="project" value="LOCAL" />
       <updated>1780389284264</updated>
     </task>
-    <option name="localTasksCounter" value="13" />
+    <task id="LOCAL-00013" summary="currency">
+      <option name="closed" value="true" />
+      <created>1780392209998</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1780392209999</updated>
+    </task>
+    <option name="localTasksCounter" value="14" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -270,6 +278,7 @@
     <MESSAGE value="prepare" />
     <MESSAGE value="new" />
     <MESSAGE value="matplotlib" />
-    <option name="LAST_COMMIT_MESSAGE" value="matplotlib" />
+    <MESSAGE value="currency" />
+    <option name="LAST_COMMIT_MESSAGE" value="currency" />
   </component>
 </project>

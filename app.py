@@ -74,15 +74,26 @@ def run_query(sql: str) -> pd.DataFrame:
 def currency_symbol(market):
     market = str(market).lower()
 
+    # UK
+    if (
+        "uk" in market
+        or "co.uk" in market
+        or "united kingdom" in market
+        or "britain" in market
+        or "amazon uk" in market
+    ):
+        return "£"
+
+    # USA
     if (
         "usa" in market
-        or "us " in market
         or market == "us"
         or "amazon.com" in market
         or ".com" in market
     ):
         return "$"
 
+    # Russia
     if (
         "ru" in market
         or "russia" in market
@@ -90,11 +101,12 @@ def currency_symbol(market):
         or "ozon" in market
         or "wildberries" in market
         or "wb" in market
-        or "yandex" in market
         or "яндекс" in market
+        or "yandex" in market
     ):
         return "RUB"
 
+    # Germany / France / Italy / Spain / Europe
     return "€"
 
 
@@ -104,7 +116,13 @@ def money_fmt(value, symbol):
     if symbol == "RUB":
         return f"{value:,.2f} RUB"
 
-    return f"{symbol} {value:,.2f}"
+    if symbol == "£":
+        return f"£ {value:,.2f}"
+
+    if symbol == "$":
+        return f"$ {value:,.2f}"
+
+    return f"€ {value:,.2f}"
 
 
 def int_fmt(value):
