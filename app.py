@@ -137,28 +137,22 @@ def prepare_score(df):
         .agg(
             revenue=("revenue", "sum"),
             sales=("sales", "sum"),
-            skus=("asin", "nunique"),
+            players=("asin", "nunique"),
             avg_price=("price", "mean"),
-            avg_rating=("rating", "mean"),
-            avg_reviews=("reviews", "mean"),
-            avg_bsr=("bsr", "mean"),
         )
         .reset_index()
     )
 
-    comp = seg[seg["onkron_competitor"] == "competitor"]
-    onk = seg[seg["onkron_competitor"] == "onkron"]
+    comp = seg[seg["onkron_competitor"] == "competitor"].copy()
+    onk = seg[seg["onkron_competitor"] == "onkron"].copy()
 
     comp_agg = (
         comp.groupby(keys, dropna=False)
         .agg(
-            competitor_revenue=("revenue", "sum"),
-            competitor_sales=("sales", "sum"),
-            competitor_skus=("skus", "sum"),
+            revenue=("revenue", "sum"),
+            sales=("sales", "sum"),
+            players=("players", "sum"),
             avg_price=("avg_price", "mean"),
-            avg_rating=("avg_rating", "mean"),
-            avg_reviews=("avg_reviews", "mean"),
-            avg_bsr=("avg_bsr", "mean"),
         )
         .reset_index()
     )
@@ -167,73 +161,64 @@ def prepare_score(df):
         onk.groupby(keys, dropna=False)
         .agg(
             onkron_revenue=("revenue", "sum"),
-            onkron_sales=("sales", "sum"),
-            onkron_skus=("skus", "sum"),
+            onkron_sales_units=("sales", "sum"),
+            onkron_models=("players", "sum"),
         )
         .reset_index()
     )
 
     score = comp_agg.merge(onk_agg, on=keys, how="left")
 
-    for col in ["onkron_revenue", "onkron_sales", "onkron_skus"]:
+    for col in ["onkron_revenue", "onkron_sales_units", "onkron_models"]:
         score[col] = score[col].fillna(0)
 
-    score["market_revenue"] = score["competitor_revenue"] + score["onkron_revenue"]
-    score["onkron_share"] = score["onkron_revenue"] / (score["market_revenue"] + 1)
+    score["revenue_per_player"] = score["revenue"] / score["players"].replace(0, np.nan)
+    score["revenue_per_player"] = score["revenue_per_player"].fillna(0)
 
-    monthly = (
-        df.groupby(keys + ["month"], dropna=False)
-        .agg(revenue=("revenue", "sum"), sales=("sales", "sum"))
-        .reset_index()
-    )
+    score["onkron_share"] = score["onkron_revenue"] / (score["revenue"] + score["onkron_revenue"] + 1)
+    score["onkron_share_pct"] = score["onkron_share"] * 100
 
-    pivot = monthly.pivot_table(
-        index=keys,
-        columns="month",
-        values=["revenue", "sales"],
-        aggfunc="sum",
-        fill_value=0,
-    )
+    score["opportunity_gap"] = 1 - score["onkron_share"]
+    score["opportunity_gap_pct"] = score["opportunity_gap"] * 100
 
-    pivot.columns = [f"{metric}_{month}" for metric, month in pivot.columns]
-    pivot = pivot.reset_index()
+    score["revenue_norm"] = score["revenue"] / score["revenue"].max()
+    score["rev_player_norm"] = score["revenue_per_player"] / score["revenue_per_player"].max()
 
-    for col in ["revenue_2026-03", "revenue_2026-04", "sales_2026-03", "sales_2026-04"]:
-        if col not in pivot.columns:
-            pivot[col] = 0
-
-    pivot["revenue_growth_abs"] = pivot["revenue_2026-04"] - pivot["revenue_2026-03"]
-    pivot["revenue_growth_pct"] = np.where(
-        pivot["revenue_2026-03"] > 0,
-        pivot["revenue_growth_abs"] / pivot["revenue_2026-03"] * 100,
-        np.where(pivot["revenue_2026-04"] > 0, 100, 0),
-    )
-
-    score = score.merge(pivot, on=keys, how="left")
-
-    score["s_revenue"] = norm(score["competitor_revenue"])
-    score["s_growth"] = norm(score["revenue_growth_pct"].clip(-100, 300))
-    score["s_price"] = norm(score["avg_price"])
-    score["s_competition"] = norm(score["competitor_skus"], invert=True)
-    score["s_gap"] = norm(1 - score["onkron_share"])
+    max_players = score["players"].max()
+    score["low_competition_norm"] = 1 - (score["players"] / max_players)
 
     score["score"] = (
-        score["s_revenue"] * 0.30
-        + score["s_growth"] * 0.25
-        + score["s_price"] * 0.15
-        + score["s_competition"] * 0.15
-        + score["s_gap"] * 0.15
-    ) * 100
+        score["revenue_norm"] * 35
+        + score["rev_player_norm"] * 25
+        + score["low_competition_norm"] * 20
+        + score["opportunity_gap"] * 20
+    )
 
-    def rec(row):
-        if row["score"] >= 65 and row["revenue_growth_pct"] >= 0 and row["onkron_share"] < 0.2:
-            return "ENTER"
-        if row["score"] <= 35 or row["revenue_growth_pct"] < -35:
-            return "EXIT"
-        return "WATCH"
+    score["priority"] = np.where(
+        score["score"] >= 70,
+        "HIGH",
+        np.where(score["score"] >= 45, "MEDIUM", "LOW")
+    )
 
-    score["recommendation"] = score.apply(rec, axis=1)
-    score["onkron_share_pct"] = score["onkron_share"] * 100
+    score["status"] = np.where(
+        score["onkron_revenue"] > 0,
+        "Текущий пайплайн",
+        np.where(
+            (score["revenue"] >= 50000) & (score["onkron_share_pct"] <= 5),
+            "Потенциальный пайплайн",
+            "Наблюдать / снизить приоритет"
+        )
+    )
+
+    score["recommendation"] = np.where(
+        score["status"] == "Текущий пайплайн",
+        "Масштабировать / защищать позицию",
+        np.where(
+            score["status"] == "Потенциальный пайплайн",
+            "Оценить запуск / закрыть ассортиментный gap",
+            "Пока не приоритет"
+        )
+    )
 
     return score
 
@@ -492,34 +477,48 @@ else:
 
     table = table[
         [
-            "recommendation",
             "type",
             "diagonal_category",
-            "load_category",
-            "score",
-            "revenue_2026-03",
-            "revenue_2026-04",
-            "revenue_growth_abs",
-            "revenue_growth_pct",
-            "competitor_skus",
+            "revenue",
+            "sales",
+            "players",
             "avg_price",
+            "revenue_per_player",
+            "onkron_revenue",
+            "onkron_sales_units",
+            "onkron_models",
             "onkron_share_pct",
+            "opportunity_gap_pct",
+            "revenue_norm",
+            "rev_player_norm",
+            "low_competition_norm",
+            "score",
+            "priority",
+            "status",
+            "recommendation",
         ]
     ].copy()
 
     table.columns = [
-        "Решение",
-        "Тип",
-        "Диагональ",
-        "Нагрузка",
+        "Type",
+        "Diagonal Category",
+        "Revenue £",
+        "Sales",
+        "Players(ASINs)",
+        "Avg Price £",
+        "Revenue per player £",
+        "ONKRON Revenue £",
+        "ONKRON Sales units",
+        "ONKRON Models",
+        "ONKRON Share %",
+        "Opportunity Gap %",
+        "Revenue Norm",
+        "Rev/Player Norm",
+        "Low Competition Norm",
         "Score",
-        "Оборот март",
-        "Оборот апрель",
-        "Прирост €",
-        "Рост %",
-        "SKU конкурентов",
-        "Средняя цена",
-        "Доля Onkron %",
+        "Приоритет",
+        "Статус",
+        "Рекомендации",
     ]
 
     st.dataframe(

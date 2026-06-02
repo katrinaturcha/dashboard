@@ -4,9 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="improve">
-      <change beforePath="$PROJECT_DIR$/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirement.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirement.txt" afterDir="false" />
+    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="renamed req">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -211,7 +210,23 @@
       <option name="project" value="LOCAL" />
       <updated>1780382977033</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="req2">
+      <option name="closed" value="true" />
+      <created>1780383047906</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1780383047906</updated>
+    </task>
+    <task id="LOCAL-00008" summary="renamed req">
+      <option name="closed" value="true" />
+      <created>1780383208814</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1780383208814</updated>
+    </task>
+    <option name="localTasksCounter" value="9" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -220,6 +235,8 @@
     <MESSAGE value="req" />
     <MESSAGE value="stream" />
     <MESSAGE value="improve" />
-    <option name="LAST_COMMIT_MESSAGE" value="improve" />
+    <MESSAGE value="req2" />
+    <MESSAGE value="renamed req" />
+    <option name="LAST_COMMIT_MESSAGE" value="renamed req" />
   </component>
 </project>
