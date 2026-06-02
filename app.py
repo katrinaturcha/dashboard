@@ -9,7 +9,6 @@ Amazon Competitors PM Dashboard
     python amazon_pm_dashboard.py
     → http://127.0.0.1:8050
 """
-
 import os
 import math
 import pandas as pd
