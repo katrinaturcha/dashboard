@@ -4,9 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="new">
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
-    </list>
+    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="matplotlib" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -250,7 +248,15 @@
       <option name="project" value="LOCAL" />
       <updated>1780388803168</updated>
     </task>
-    <option name="localTasksCounter" value="12" />
+    <task id="LOCAL-00012" summary="matplotlib">
+      <option name="closed" value="true" />
+      <created>1780389284264</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1780389284264</updated>
+    </task>
+    <option name="localTasksCounter" value="13" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -263,6 +269,7 @@
     <MESSAGE value="renamed req" />
     <MESSAGE value="prepare" />
     <MESSAGE value="new" />
-    <option name="LAST_COMMIT_MESSAGE" value="new" />
+    <MESSAGE value="matplotlib" />
+    <option name="LAST_COMMIT_MESSAGE" value="matplotlib" />
   </component>
 </project>

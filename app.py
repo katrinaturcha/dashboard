@@ -69,6 +69,70 @@ def run_query(sql: str) -> pd.DataFrame:
 
 
 # =========================================================
+# FORMAT HELPERS
+# =========================================================
+def currency_symbol(market):
+    market = str(market).lower()
+
+    if (
+        "usa" in market
+        or "us " in market
+        or market == "us"
+        or "amazon.com" in market
+        or ".com" in market
+    ):
+        return "$"
+
+    if (
+        "ru" in market
+        or "russia" in market
+        or "рос" in market
+        or "ozon" in market
+        or "wildberries" in market
+        or "wb" in market
+        or "yandex" in market
+        or "яндекс" in market
+    ):
+        return "RUB"
+
+    return "€"
+
+
+def money_fmt(value, symbol):
+    value = 0 if pd.isna(value) else float(value)
+
+    if symbol == "RUB":
+        return f"{value:,.2f} RUB"
+
+    return f"{symbol} {value:,.2f}"
+
+
+def int_fmt(value):
+    value = 0 if pd.isna(value) else float(value)
+    return f"{value:,.0f}"
+
+
+def pct_fmt(value):
+    value = 0 if pd.isna(value) else float(value)
+    return f"{value:.2f}%"
+
+
+def num_fmt(value):
+    value = 0 if pd.isna(value) else float(value)
+    return f"{value:.2f}"
+
+
+def safe_div(a, b):
+    if b is None or b == 0 or pd.isna(b):
+        return 0
+    return a / b
+
+
+def safe_div_series(a, b):
+    return np.where(b == 0, 0, a / b)
+
+
+# =========================================================
 # LOAD DATA
 # =========================================================
 @st.cache_data(ttl=1800)
@@ -97,18 +161,21 @@ def load_data():
     if df.empty:
         return df
 
-    df["onkron_competitor"] = df["onkron_competitor"].fillna("").str.lower()
+    df["onkron_competitor"] = df["onkron_competitor"].fillna("").astype(str).str.lower()
     df["revenue"] = pd.to_numeric(df["revenue"], errors="coerce").fillna(0)
     df["sales"] = pd.to_numeric(df["sales"], errors="coerce").fillna(0)
     df["price"] = pd.to_numeric(df["price"], errors="coerce")
 
+    df["type"] = df["type"].fillna("").astype(str)
+    df["diagonal_category"] = df["diagonal_category"].fillna("").astype(str)
+    df["market"] = df["market"].fillna("").astype(str)
+
     return df
 
 
-def safe_div(a, b):
-    return np.where(b == 0, 0, a / b)
-
-
+# =========================================================
+# SCORE LOGIC LIKE EXCEL
+# =========================================================
 def prepare_score(df):
     keys = ["market", "type", "diagonal_category"]
 
@@ -123,8 +190,8 @@ def prepare_score(df):
         .reset_index()
     )
 
-    competitors = grouped[grouped["onkron_competitor"] == "competitor"]
-    onkron = grouped[grouped["onkron_competitor"] == "onkron"]
+    competitors = grouped[grouped["onkron_competitor"] == "competitor"].copy()
+    onkron = grouped[grouped["onkron_competitor"] == "onkron"].copy()
 
     comp = (
         competitors.groupby(keys, dropna=False)
@@ -167,15 +234,15 @@ def prepare_score(df):
     max_rev_player = score["revenue_per_player"].max()
     max_players = score["players"].max()
 
-    score["revenue_norm"] = safe_div(score["revenue"], max_revenue)
-    score["rev_player_norm"] = safe_div(score["revenue_per_player"], max_rev_player)
-    score["low_competition_norm"] = 1 - safe_div(score["players"], max_players)
+    score["revenue_norm"] = safe_div_series(score["revenue"], max_revenue)
+    score["rev_player_norm"] = safe_div_series(score["revenue_per_player"], max_rev_player)
+    score["low_competition_norm"] = 1 - safe_div_series(score["players"], max_players)
 
     score["score"] = (
-        score["revenue_norm"] * 35
-        + score["rev_player_norm"] * 25
-        + score["low_competition_norm"] * 20
-        + score["opportunity_gap"] * 20
+        score["revenue_norm"] * (WEIGHT_REVENUE * 100)
+        + score["rev_player_norm"] * (WEIGHT_REV_PLAYER * 100)
+        + score["low_competition_norm"] * (WEIGHT_LOW_COMPETITION * 100)
+        + score["opportunity_gap"] * (WEIGHT_OPPORTUNITY_GAP * 100)
     )
 
     score["priority"] = np.where(
@@ -209,7 +276,7 @@ def prepare_score(df):
 
 
 # =========================================================
-# APP
+# LOAD APP DATA
 # =========================================================
 st.title("Куда вводить продукт")
 st.caption(f"Данные за {PERIOD_LABEL}")
@@ -227,12 +294,18 @@ if df.empty:
 
 score_df = prepare_score(df)
 
+
+# =========================================================
+# FILTERS
+# =========================================================
 markets = sorted(df["market"].dropna().unique())
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
     selected_market = st.selectbox("Рынок", markets)
+
+CUR = currency_symbol(selected_market)
 
 filtered = df[df["market"] == selected_market].copy()
 filtered_score = score_df[score_df["market"] == selected_market].copy()
@@ -259,13 +332,13 @@ if selected_diag != "Все":
 # =========================================================
 total_revenue = filtered["revenue"].sum()
 onkron_revenue = filtered[filtered["onkron_competitor"] == "onkron"]["revenue"].sum()
-onkron_share = onkron_revenue / (total_revenue + 1) * 100
+onkron_share = safe_div(onkron_revenue, total_revenue + 1) * 100
 
 kpi1, kpi2, kpi3 = st.columns(3)
 
-kpi1.metric("Общий объем выручки", f"£ {total_revenue:,.2f}")
-kpi2.metric("Выручка ONKRON", f"£ {onkron_revenue:,.2f}")
-kpi3.metric("Доля ONKRON", f"{onkron_share:.1f}%")
+kpi1.metric("Общий объем выручки", money_fmt(total_revenue, CUR))
+kpi2.metric("Выручка ONKRON", money_fmt(onkron_revenue, CUR))
+kpi3.metric("Доля ONKRON", pct_fmt(onkron_share))
 
 
 # =========================================================
@@ -304,17 +377,17 @@ else:
         "Priority",
     ]
 
+    pipeline_show["Выручка"] = pipeline_show["Выручка"].apply(lambda x: money_fmt(x, CUR))
+    pipeline_show["Кол-во игроков"] = pipeline_show["Кол-во игроков"].apply(int_fmt)
+    pipeline_show["Выручка на игрока"] = pipeline_show["Выручка на игрока"].apply(lambda x: money_fmt(x, CUR))
+    pipeline_show["Доля ONKRON"] = pipeline_show["Доля ONKRON"].apply(pct_fmt)
+    pipeline_show["Score"] = pipeline_show["Score"].apply(num_fmt)
+
     st.dataframe(
-        pipeline_show.head(20).style.format(
-            {
-                "Выручка": "£ {:,.2f}",
-                "Выручка на игрока": "£ {:,.2f}",
-                "Доля ONKRON": "{:.1f}%",
-                "Score": "{:.1f}",
-            }
-        ),
+        pipeline_show.head(20),
         use_container_width=True,
         height=360,
+        hide_index=True,
     )
 
 
@@ -327,27 +400,24 @@ with left:
     st.subheader("Топ сегментов по выручке")
 
     top_segments = filtered_score.sort_values("revenue", ascending=False).head(10).copy()
+
     top_segments["segment"] = (
         top_segments["type"].astype(str)
         + " | "
         + top_segments["diagonal_category"].astype(str)
     )
 
-    top_table = top_segments[
-        ["segment", "revenue", "score"]
-    ].copy()
-
+    top_table = top_segments[["segment", "revenue", "score"]].copy()
     top_table.columns = ["Сегмент", "Revenue", "Score"]
 
+    top_table["Revenue"] = top_table["Revenue"].apply(lambda x: money_fmt(x, CUR))
+    top_table["Score"] = top_table["Score"].apply(num_fmt)
+
     st.dataframe(
-        top_table.style.format(
-            {
-                "Revenue": "£ {:,.2f}",
-                "Score": "{:.2f}",
-            }
-        ),
+        top_table,
         use_container_width=True,
         height=390,
+        hide_index=True,
     )
 
 with right:
@@ -361,19 +431,25 @@ with right:
             orientation="h",
             text="revenue",
             labels={
-                "revenue": "Revenue",
+                "revenue": f"Revenue, {CUR}",
                 "segment": "Segment",
             },
         )
 
-        fig.update_traces(
-            texttemplate="£%{text:,.0f}",
-            textposition="outside",
-        )
+        if CUR == "RUB":
+            fig.update_traces(
+                texttemplate="%{text:,.2f} RUB",
+                textposition="outside",
+            )
+        else:
+            fig.update_traces(
+                texttemplate=f"{CUR} %{{text:,.2f}}",
+                textposition="outside",
+            )
 
         fig.update_layout(
             height=390,
-            margin=dict(l=10, r=80, t=20, b=40),
+            margin=dict(l=10, r=100, t=20, b=40),
             showlegend=False,
         )
 
@@ -398,8 +474,10 @@ with m1:
         fill_value=0,
     )
 
+    pivot_share_fmt = pivot_share.map(pct_fmt)
+
     st.dataframe(
-        pivot_share.style.format("{:.2f}%").background_gradient(cmap="YlGn"),
+        pivot_share_fmt,
         use_container_width=True,
         height=420,
     )
@@ -415,8 +493,10 @@ with m2:
         fill_value=0,
     )
 
+    pivot_score_fmt = pivot_score.map(num_fmt)
+
     st.dataframe(
-        pivot_score.style.format("{:.2f}").background_gradient(cmap="YlGn"),
+        pivot_score_fmt,
         use_container_width=True,
         height=420,
     )
@@ -432,8 +512,10 @@ with m3:
         fill_value=0,
     )
 
+    pivot_revenue_fmt = pivot_revenue.map(lambda x: money_fmt(x, CUR))
+
     st.dataframe(
-        pivot_revenue.style.format("£ {:,.2f}").background_gradient(cmap="YlOrBr"),
+        pivot_revenue_fmt,
         use_container_width=True,
         height=420,
     )
@@ -471,16 +553,16 @@ table = filtered_score[
 table.columns = [
     "Type",
     "Diagonal Category",
-    "Revenue £",
+    "Revenue",
     "Sales",
     "Players(ASINs)",
-    "Avg Price £",
-    "Revenue per player £",
-    "ONKRON Revenue £",
+    "Avg Price",
+    "Revenue per player",
+    "ONKRON Revenue",
     "ONKRON Sales units",
     "ONKRON Models",
-    "ONKRON Share %",
-    "Opportunity Gap %",
+    "ONKRON Share",
+    "Opportunity Gap",
     "Revenue Norm",
     "Rev/Player Norm",
     "Low Competition Norm",
@@ -490,23 +572,49 @@ table.columns = [
     "Рекомендации",
 ]
 
+money_cols = [
+    "Revenue",
+    "Avg Price",
+    "Revenue per player",
+    "ONKRON Revenue",
+]
+
+int_cols = [
+    "Sales",
+    "Players(ASINs)",
+    "ONKRON Sales units",
+    "ONKRON Models",
+]
+
+pct_cols = [
+    "ONKRON Share",
+    "Opportunity Gap",
+]
+
+num_cols = [
+    "Revenue Norm",
+    "Rev/Player Norm",
+    "Low Competition Norm",
+    "Score",
+]
+
+for col in money_cols:
+    table[col] = table[col].apply(lambda x: money_fmt(x, CUR))
+
+for col in int_cols:
+    table[col] = table[col].apply(int_fmt)
+
+for col in pct_cols:
+    table[col] = table[col].apply(pct_fmt)
+
+for col in num_cols:
+    table[col] = table[col].apply(num_fmt)
+
 st.dataframe(
-    table.style.format(
-        {
-            "Revenue £": "£ {:,.2f}",
-            "Avg Price £": "£ {:,.2f}",
-            "Revenue per player £": "£ {:,.2f}",
-            "ONKRON Revenue £": "£ {:,.2f}",
-            "ONKRON Share %": "{:.1f}%",
-            "Opportunity Gap %": "{:.1f}%",
-            "Revenue Norm": "{:.2f}",
-            "Rev/Player Norm": "{:.2f}",
-            "Low Competition Norm": "{:.2f}",
-            "Score": "{:.1f}",
-        }
-    ),
+    table,
     use_container_width=True,
     height=620,
+    hide_index=True,
 )
 
 
@@ -517,16 +625,60 @@ st.subheader("Параметры автоматического скоринга
 
 settings = pd.DataFrame(
     [
-        ["Вес емкости сегмента", "35%", "Revenue Norm", "Чем выше выручка сегмента, тем выше приоритет"],
-        ["Вес выручки на игрока", "25%", "Rev/Player Norm", "Показывает денежность сегмента на одного игрока"],
-        ["Вес низкой конкуренции", "20%", "Low Competition Norm", "Больше балл, если игроков меньше"],
-        ["Вес разрыва по доле WE", "20%", "Opportunity Gap", "Больше балл, если наша доля низкая или нулевая"],
-        ["Порог HIGH", THRESHOLD_HIGH, "Score", "Приоритет HIGH, если Score >= порога"],
-        ["Порог MEDIUM", THRESHOLD_MEDIUM, "Score", "Приоритет MEDIUM, если Score >= порога"],
-        ["Порог минимальной выручки для Pipeline", f"{PIPELINE_MIN_REVENUE:,.0f}", "Revenue", "Фильтр для потенциального pipeline"],
-        ["Порог максимальной доли WE для Pipeline", f"{PIPELINE_MAX_ONKRON_SHARE:.1f}%", "WE Share", "Сегмент потенциальный, если WE Share <= порога"],
+        [
+            "Вес емкости сегмента",
+            "35%",
+            "Revenue Norm",
+            "Чем выше выручка сегмента, тем выше приоритет",
+        ],
+        [
+            "Вес выручки на игрока",
+            "25%",
+            "Rev/Player Norm",
+            "Показывает денежность сегмента на одного игрока/модель",
+        ],
+        [
+            "Вес низкой конкуренции",
+            "20%",
+            "Low Competition Norm",
+            "Больше балл, если игроков меньше",
+        ],
+        [
+            "Вес разрыва по доле WE",
+            "20%",
+            "Opportunity Gap",
+            "Больше балл, если наша доля низкая или нулевая",
+        ],
+        [
+            "Порог HIGH",
+            THRESHOLD_HIGH,
+            "Score",
+            "Приоритет HIGH, если Score >= порога",
+        ],
+        [
+            "Порог MEDIUM",
+            THRESHOLD_MEDIUM,
+            "Score",
+            "Приоритет MEDIUM, если Score >= порога",
+        ],
+        [
+            "Порог минимальной выручки для Pipeline",
+            money_fmt(PIPELINE_MIN_REVENUE, CUR),
+            "Revenue",
+            "Фильтр для потенциального pipeline",
+        ],
+        [
+            "Порог максимальной доли WE для Pipeline",
+            f"{PIPELINE_MAX_ONKRON_SHARE:.2f}%",
+            "WE Share",
+            "Сегмент считается потенциальным, если WE Share <= порога",
+        ],
     ],
     columns=["Параметр", "Значение", "Используется в", "Комментарий"],
 )
 
-st.dataframe(settings, use_container_width=True, hide_index=True)
+st.dataframe(
+    settings,
+    use_container_width=True,
+    hide_index=True,
+)
