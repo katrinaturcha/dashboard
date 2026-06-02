@@ -10,8 +10,7 @@ import plotly.express as px
 # PAGE CONFIG
 # =========================================================
 st.set_page_config(
-    page_title="Куда вводить продукт",
-    page_icon="📊",
+    page_title="Аналитика рынка",
     layout="wide"
 )
 
@@ -313,6 +312,49 @@ def prepare_score(df):
 
 
 # =========================================================
+# HEATMAP HELPER
+# =========================================================
+def make_heatmap(data, value_col, title, text_func, color_scale="YlGn"):
+    pivot = data.pivot_table(
+        index="type",
+        columns="diagonal_category",
+        values=value_col,
+        aggfunc="sum" if value_col != "score" else "mean",
+        fill_value=0,
+    )
+
+    if pivot.empty:
+        st.info(f"Нет данных для {title}")
+        return
+
+    text_values = pivot.map(text_func)
+
+    fig = px.imshow(
+        pivot,
+        text_auto=False,
+        aspect="auto",
+        color_continuous_scale=color_scale,
+        labels=dict(x="Diagonal Category", y="Type", color=title),
+    )
+
+    fig.update_traces(
+        text=text_values.values,
+        texttemplate="%{text}",
+        hovertemplate="<b>%{y}</b><br>%{x}<br>%{text}<extra></extra>",
+    )
+
+    fig.update_layout(
+        title=title,
+        height=max(520, len(pivot.index) * 32),
+        margin=dict(l=10, r=10, t=50, b=40),
+        xaxis=dict(side="top", automargin=True),
+        yaxis=dict(automargin=True),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# =========================================================
 # LOAD APP DATA
 # =========================================================
 st.title("Куда вводить продукт")
@@ -399,7 +441,14 @@ market_volume_delta_pct = (
     else 0
 )
 
-onkron_share_delta_pp = onkron_share - prev_onkron_share
+if selected_period == "Март 2026":
+    onkron_share_mom_pct = 0
+else:
+    onkron_share_mom_pct = (
+        safe_div(onkron_share - prev_onkron_share, prev_onkron_share) * 100
+        if prev_onkron_share > 0
+        else 0
+    )
 
 kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
 
@@ -423,21 +472,11 @@ kpi3.metric(
 kpi4.metric(
     "Доля ONKRON",
     pct_fmt(onkron_share),
-    delta=pp_fmt(onkron_share_delta_pp),
 )
-
-if selected_period == "Март 2026":
-    share_mom_pct = 0
-else:
-    share_mom_pct = (
-        ((onkron_share - prev_onkron_share) / prev_onkron_share) * 100
-        if prev_onkron_share > 0
-        else 0
-    )
 
 kpi5.metric(
     "Рост доли ONKRON MoM",
-    f"{share_mom_pct:.2f}%"
+    f"{onkron_share_mom_pct:.2f}%",
 )
 
 
@@ -492,132 +531,89 @@ else:
 
 
 # =========================================================
-# TOP SEGMENTS BY REVENUE
+# TOP SEGMENTS BY REVENUE — ONLY CHART
 # =========================================================
-left, right = st.columns([1, 1])
+st.subheader("Top-10 segments by Revenue")
 
-with left:
-    st.subheader("Топ сегментов по выручке")
+top_segments = filtered_score.sort_values("revenue", ascending=False).head(10).copy()
 
-    top_segments = filtered_score.sort_values("revenue", ascending=False).head(10).copy()
-
+if top_segments.empty:
+    st.info("Нет данных по сегментам.")
+else:
     top_segments["segment"] = (
         top_segments["type"].astype(str)
         + " | "
         + top_segments["diagonal_category"].astype(str)
     )
 
-    top_table = top_segments[["segment", "revenue", "score"]].copy()
-    top_table.columns = ["Сегмент", "Revenue", "Score"]
-
-    top_table["Revenue"] = top_table["Revenue"].apply(lambda x: money_fmt(x, CUR))
-    top_table["Score"] = top_table["Score"].apply(num_fmt)
-
-    st.dataframe(
-        top_table,
-        use_container_width=True,
-        height=390,
-        hide_index=True,
+    fig = px.bar(
+        top_segments.sort_values("revenue"),
+        x="revenue",
+        y="segment",
+        orientation="h",
+        text="revenue",
+        labels={
+            "revenue": f"Revenue, {CUR}",
+            "segment": "Segment",
+        },
     )
 
-with right:
-    st.subheader("Top-10 segments by Revenue")
-
-    if not top_segments.empty:
-        fig = px.bar(
-            top_segments.sort_values("revenue"),
-            x="revenue",
-            y="segment",
-            orientation="h",
-            text="revenue",
-            labels={
-                "revenue": f"Revenue, {CUR}",
-                "segment": "Segment",
-            },
+    if CUR == "RUB":
+        fig.update_traces(
+            texttemplate="%{text:,.2f} RUB",
+            textposition="outside",
+            cliponaxis=False,
+        )
+    else:
+        fig.update_traces(
+            texttemplate=f"{CUR} %{{text:,.2f}}",
+            textposition="outside",
+            cliponaxis=False,
         )
 
-        if CUR == "RUB":
-            fig.update_traces(
-                texttemplate="%{text:,.2f} RUB",
-                textposition="outside",
-            )
-        else:
-            fig.update_traces(
-                texttemplate=f"{CUR} %{{text:,.2f}}",
-                textposition="outside",
-            )
+    fig.update_layout(
+        height=520,
+        margin=dict(l=10, r=140, t=20, b=40),
+        showlegend=False,
+        yaxis=dict(automargin=True),
+        xaxis=dict(fixedrange=False),
+    )
 
-        fig.update_layout(
-            height=390,
-            margin=dict(l=10, r=100, t=20, b=40),
-            showlegend=False,
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True)
 
 
 # =========================================================
-# MATRICES
+# HEATMAP MATRICES
 # =========================================================
 st.subheader("Матрицы Type × Diagonal Category")
 
-m1, m2, m3 = st.columns(3)
+tab1, tab2, tab3 = st.tabs(["ONKRON Share", "Score", "Revenue"])
 
-with m1:
-    st.markdown("**ONKRON Share**")
-
-    pivot_share = filtered_score.pivot_table(
-        index="type",
-        columns="diagonal_category",
-        values="onkron_share_pct",
-        aggfunc="sum",
-        fill_value=0,
+with tab1:
+    make_heatmap(
+        filtered_score,
+        value_col="onkron_share_pct",
+        title="ONKRON Share",
+        text_func=pct_fmt,
+        color_scale="YlGn",
     )
 
-    pivot_share_fmt = pivot_share.map(pct_fmt)
-
-    st.dataframe(
-        pivot_share_fmt,
-        use_container_width=True,
-        height=420,
+with tab2:
+    make_heatmap(
+        filtered_score,
+        value_col="score",
+        title="Score",
+        text_func=num_fmt,
+        color_scale="YlGn",
     )
 
-with m2:
-    st.markdown("**Score**")
-
-    pivot_score = filtered_score.pivot_table(
-        index="type",
-        columns="diagonal_category",
-        values="score",
-        aggfunc="mean",
-        fill_value=0,
-    )
-
-    pivot_score_fmt = pivot_score.map(num_fmt)
-
-    st.dataframe(
-        pivot_score_fmt,
-        use_container_width=True,
-        height=420,
-    )
-
-with m3:
-    st.markdown("**Revenue**")
-
-    pivot_revenue = filtered_score.pivot_table(
-        index="type",
-        columns="diagonal_category",
-        values="revenue",
-        aggfunc="sum",
-        fill_value=0,
-    )
-
-    pivot_revenue_fmt = pivot_revenue.map(lambda x: money_fmt(x, CUR))
-
-    st.dataframe(
-        pivot_revenue_fmt,
-        use_container_width=True,
-        height=420,
+with tab3:
+    make_heatmap(
+        filtered_score,
+        value_col="revenue",
+        title="Revenue",
+        text_func=lambda x: money_fmt(x, CUR),
+        color_scale="YlOrBr",
     )
 
 
