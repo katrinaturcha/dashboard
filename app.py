@@ -19,9 +19,12 @@ st.set_page_config(
 # =========================================================
 # SETTINGS
 # =========================================================
-PERIOD_START = "2026-04-01"
-PERIOD_END = "2026-05-01"
-PERIOD_LABEL = "апрель 2026"
+PERIOD_LABELS = {
+    "Март 2026": ("2026-03-01", "2026-04-01"),
+    "Апрель 2026": ("2026-04-01", "2026-05-01"),
+}
+
+PERIOD_DEFAULT = "Апрель 2026"
 
 WEIGHT_REVENUE = 0.35
 WEIGHT_REV_PLAYER = 0.25
@@ -74,7 +77,6 @@ def run_query(sql: str) -> pd.DataFrame:
 def currency_symbol(market):
     market = str(market).lower()
 
-    # UK
     if (
         "uk" in market
         or "co.uk" in market
@@ -84,7 +86,6 @@ def currency_symbol(market):
     ):
         return "£"
 
-    # USA
     if (
         "usa" in market
         or market == "us"
@@ -93,7 +94,6 @@ def currency_symbol(market):
     ):
         return "$"
 
-    # Russia
     if (
         "ru" in market
         or "russia" in market
@@ -106,7 +106,6 @@ def currency_symbol(market):
     ):
         return "RUB"
 
-    # Germany / France / Italy / Spain / Europe
     return "€"
 
 
@@ -116,13 +115,7 @@ def money_fmt(value, symbol):
     if symbol == "RUB":
         return f"{value:,.2f} RUB"
 
-    if symbol == "£":
-        return f"£ {value:,.2f}"
-
-    if symbol == "$":
-        return f"$ {value:,.2f}"
-
-    return f"€ {value:,.2f}"
+    return f"{symbol} {value:,.2f}"
 
 
 def int_fmt(value):
@@ -133,6 +126,11 @@ def int_fmt(value):
 def pct_fmt(value):
     value = 0 if pd.isna(value) else float(value)
     return f"{value:.2f}%"
+
+
+def pp_fmt(value):
+    value = 0 if pd.isna(value) else float(value)
+    return f"{value:.2f} п.п."
 
 
 def num_fmt(value):
@@ -150,12 +148,19 @@ def safe_div_series(a, b):
     return np.where(b == 0, 0, a / b)
 
 
+def get_prev_period(period_name):
+    if period_name == "Апрель 2026":
+        return "2026-03-01", "2026-04-01"
+
+    return None, None
+
+
 # =========================================================
 # LOAD DATA
 # =========================================================
 @st.cache_data(ttl=1800)
 def load_data():
-    sql = f"""
+    sql = """
     SELECT
         market,
         type,
@@ -163,13 +168,14 @@ def load_data():
         onkron_competitor,
         brand,
         asin,
+        data_date_begin,
         CAST(price AS DECIMAL(10,2)) AS price,
         CAST(revenue AS DECIMAL(14,2)) AS revenue,
         CAST(sales AS DECIMAL(12,2)) AS sales
     FROM amazon_competitors
     WHERE
-        data_date_begin >= '{PERIOD_START}'
-        AND data_date_begin < '{PERIOD_END}'
+        data_date_begin >= '2026-03-01'
+        AND data_date_begin < '2026-05-01'
         AND type IS NOT NULL
         AND diagonal_category IS NOT NULL
     """
@@ -183,6 +189,7 @@ def load_data():
     df["revenue"] = pd.to_numeric(df["revenue"], errors="coerce").fillna(0)
     df["sales"] = pd.to_numeric(df["sales"], errors="coerce").fillna(0)
     df["price"] = pd.to_numeric(df["price"], errors="coerce")
+    df["data_date_begin"] = pd.to_datetime(df["data_date_begin"], errors="coerce")
 
     df["type"] = df["type"].fillna("").astype(str)
     df["diagonal_category"] = df["diagonal_category"].fillna("").astype(str)
@@ -196,6 +203,18 @@ def load_data():
 # =========================================================
 def prepare_score(df):
     keys = ["market", "type", "diagonal_category"]
+
+    if df.empty:
+        return pd.DataFrame(
+            columns=[
+                "market", "type", "diagonal_category", "revenue", "sales", "players",
+                "avg_price", "onkron_revenue", "onkron_sales_units", "onkron_models",
+                "revenue_per_player", "onkron_share", "onkron_share_pct",
+                "opportunity_gap", "opportunity_gap_pct", "revenue_norm",
+                "rev_player_norm", "low_competition_norm", "score", "priority",
+                "status", "recommendation"
+            ]
+        )
 
     grouped = (
         df.groupby(keys + ["onkron_competitor"], dropna=False)
@@ -297,7 +316,6 @@ def prepare_score(df):
 # LOAD APP DATA
 # =========================================================
 st.title("Куда вводить продукт")
-st.caption(f"Данные за {PERIOD_LABEL}")
 
 try:
     df = load_data()
@@ -310,39 +328,53 @@ if df.empty:
     st.error("Нет данных за выбранный период.")
     st.stop()
 
-score_df = prepare_score(df)
-
 
 # =========================================================
 # FILTERS
 # =========================================================
 markets = sorted(df["market"].dropna().unique())
 
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 
 with col1:
     selected_market = st.selectbox("Рынок", markets)
 
+with col2:
+    selected_period = st.selectbox(
+        "Период",
+        list(PERIOD_LABELS.keys()),
+        index=list(PERIOD_LABELS.keys()).index(PERIOD_DEFAULT),
+    )
+
 CUR = currency_symbol(selected_market)
 
-filtered = df[df["market"] == selected_market].copy()
-filtered_score = score_df[score_df["market"] == selected_market].copy()
+selected_start, selected_end = PERIOD_LABELS[selected_period]
+prev_start, prev_end = get_prev_period(selected_period)
 
-with col2:
-    type_options = ["Все"] + sorted(filtered["type"].dropna().unique())
-    selected_type = st.selectbox("Type", type_options)
+selected_start_dt = pd.to_datetime(selected_start)
+selected_end_dt = pd.to_datetime(selected_end)
 
-if selected_type != "Все":
-    filtered = filtered[filtered["type"] == selected_type]
-    filtered_score = filtered_score[filtered_score["type"] == selected_type]
+filtered = df[
+    (df["market"] == selected_market)
+    & (df["data_date_begin"] >= selected_start_dt)
+    & (df["data_date_begin"] < selected_end_dt)
+].copy()
 
-with col3:
-    diag_options = ["Все"] + sorted(filtered["diagonal_category"].dropna().unique())
-    selected_diag = st.selectbox("Diagonal Category", diag_options)
+if prev_start and prev_end:
+    prev_start_dt = pd.to_datetime(prev_start)
+    prev_end_dt = pd.to_datetime(prev_end)
 
-if selected_diag != "Все":
-    filtered = filtered[filtered["diagonal_category"] == selected_diag]
-    filtered_score = filtered_score[filtered_score["diagonal_category"] == selected_diag]
+    prev_filtered = df[
+        (df["market"] == selected_market)
+        & (df["data_date_begin"] >= prev_start_dt)
+        & (df["data_date_begin"] < prev_end_dt)
+    ].copy()
+else:
+    prev_filtered = pd.DataFrame(columns=df.columns)
+
+filtered_score = prepare_score(filtered)
+
+st.caption(f"Данные за {selected_period}")
 
 
 # =========================================================
@@ -352,11 +384,52 @@ total_revenue = filtered["revenue"].sum()
 onkron_revenue = filtered[filtered["onkron_competitor"] == "onkron"]["revenue"].sum()
 onkron_share = safe_div(onkron_revenue, total_revenue + 1) * 100
 
-kpi1, kpi2, kpi3 = st.columns(3)
+prev_total_revenue = prev_filtered["revenue"].sum() if not prev_filtered.empty else 0
+prev_onkron_revenue = (
+    prev_filtered[prev_filtered["onkron_competitor"] == "onkron"]["revenue"].sum()
+    if not prev_filtered.empty
+    else 0
+)
+prev_onkron_share = safe_div(prev_onkron_revenue, prev_total_revenue + 1) * 100
 
-kpi1.metric("Общий объем выручки", money_fmt(total_revenue, CUR))
-kpi2.metric("Выручка ONKRON", money_fmt(onkron_revenue, CUR))
-kpi3.metric("Доля ONKRON", pct_fmt(onkron_share))
+market_volume_delta_abs = total_revenue - prev_total_revenue
+market_volume_delta_pct = (
+    safe_div(market_volume_delta_abs, prev_total_revenue) * 100
+    if prev_total_revenue > 0
+    else 0
+)
+
+onkron_share_delta_pp = onkron_share - prev_onkron_share
+
+kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+
+kpi1.metric(
+    "Объем рынка",
+    money_fmt(total_revenue, CUR),
+    delta=money_fmt(market_volume_delta_abs, CUR),
+)
+
+kpi2.metric(
+    "Изменение объема рынка",
+    f"{market_volume_delta_pct:.2f}%",
+    delta=f"{market_volume_delta_pct:.2f}%",
+)
+
+kpi3.metric(
+    "Выручка ONKRON",
+    money_fmt(onkron_revenue, CUR),
+)
+
+kpi4.metric(
+    "Доля ONKRON",
+    pct_fmt(onkron_share),
+    delta=pp_fmt(onkron_share_delta_pp),
+)
+
+kpi5.metric(
+    "ONKRON Share MoM",
+    "Повысилась" if onkron_share_delta_pp > 0 else ("Понизилась" if onkron_share_delta_pp < 0 else "0"),
+)
 
 
 # =========================================================
