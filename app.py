@@ -1,34 +1,39 @@
-"""
-Amazon Competitors PM Dashboard
-================================
-Дашборд для продуктового менеджера: куда вводить / откуда выводить продукт.
-Данные: MySQL analyticallab → таблица amazon_competitors (через Onkron MCP).
-
-Запуск:
-    pip install pymysql pandas plotly dash python-dotenv --break-system-packages
-    python amazon_pm_dashboard.py
-    → http://127.0.0.1:8050
-"""
 import os
 import math
+import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
-import dash
-from dash import dcc, html, Input, Output, dash_table
 import pymysql
-import sys
-print(sys.executable)
+import streamlit as st
+import plotly.express as px
+import plotly.graph_objects as go
 
-# ──────────────────────────────────────────────
-# 1. ПОДКЛЮЧЕНИЕ К БД
-# ──────────────────────────────────────────────
+
+# =========================================================
+# 1. PAGE CONFIG
+# =========================================================
+st.set_page_config(
+    page_title="Amazon Competitors PM Dashboard",
+    page_icon="📊",
+    layout="wide"
+)
+
+
+# =========================================================
+# 2. DB CONFIG
+# =========================================================
+def get_secret(name, default=None):
+    try:
+        return st.secrets[name]
+    except Exception:
+        return os.getenv(name, default)
+
+
 DB_CONFIG = dict(
-    host=os.getenv("DB_HOST", 'onkron.com'),
-    port=int(os.getenv("DB_PORT", 3306)),
-    user=os.getenv("DB_USER", "analyticallab"),
-    password=os.getenv("DB_PASSWORD", "eL81h85tfZgIxYH"),
-    database=os.getenv("DB_NAME", "analyticallab"),
+    host=get_secret("DB_HOST", "YOUR_DB_HOST"),
+    port=int(get_secret("DB_PORT", 3306)),
+    user=get_secret("DB_USER", "YOUR_DB_USER"),
+    password=get_secret("DB_PASSWORD", "YOUR_DB_PASSWORD"),
+    database=get_secret("DB_NAME", "analyticallab"),
     charset="utf8mb4",
     cursorclass=pymysql.cursors.DictCursor,
 )
@@ -36,654 +41,500 @@ DB_CONFIG = dict(
 
 def run_query(sql: str) -> pd.DataFrame:
     conn = pymysql.connect(**DB_CONFIG)
-
     try:
         with conn.cursor() as cur:
             cur.execute(sql)
-
             rows = cur.fetchall()
-
-            if cur.description:
-                columns = [col[0] for col in cur.description]
-            else:
-                columns = []
-
+            columns = [col[0] for col in cur.description] if cur.description else []
         return pd.DataFrame(rows, columns=columns)
-
     finally:
         conn.close()
 
 
-# ──────────────────────────────────────────────
-# 2. SQL-ЗАПРОСЫ
-# ──────────────────────────────────────────────
-test = run_query("""
-SELECT
-    COUNT(*) cnt,
-    MIN(data_date_begin) min_date,
-    MAX(data_date_begin) max_date
-FROM amazon_competitors
-""")
+# =========================================================
+# 3. LOAD DATA
+# =========================================================
+@st.cache_data(ttl=1800)
+def load_data():
+    columns_df = run_query("SHOW COLUMNS FROM amazon_competitors")
+    available_cols = set(columns_df["Field"].tolist())
 
-print(test)
-
-
-SQL_SEGMENTS = """
-SELECT
-    market,
-    type,
-    diagonal_category,
-    onkron_competitor,
-    COUNT(DISTINCT asin)                        AS players,
-    ROUND(SUM(revenue), 2)                      AS total_revenue,
-    ROUND(AVG(CAST(price AS DECIMAL(10,2))), 2) AS avg_price,
-    ROUND(AVG(CAST(rating AS DECIMAL(3,1))), 2) AS avg_rating,
-    ROUND(AVG(CAST(reviews AS UNSIGNED)), 0)    AS avg_reviews,
-    ROUND(SUM(CAST(sales AS DECIMAL(12,2))), 0) AS total_sales,
-    ROUND(AVG(CAST(bsr AS DECIMAL(12,2))), 0)   AS avg_bsr
-FROM amazon_competitors
-WHERE
-    data_date_begin >= '2026-04-01'
-    AND data_date_begin < '2026-05-01'
-    AND type IS NOT NULL
-    AND diagonal_category IS NOT NULL
-GROUP BY market, type, diagonal_category, onkron_competitor
-"""
-
-SQL_PRICE_DIST = """
--- Распределение цен по сегменту (для анализа ценовых ниш)
-SELECT
-    market,
-    type,
-    diagonal_category,
-    onkron_competitor,
-    CAST(price AS DECIMAL(10,2)) AS price,
-    CAST(revenue AS DECIMAL(14,2)) AS revenue,
-    CAST(rating  AS DECIMAL(3,1))  AS rating,
-    CAST(reviews AS UNSIGNED)      AS reviews,
-    CAST(sales   AS DECIMAL(12,2)) AS sales,
-    brand,
-    asin
-FROM amazon_competitors
-WHERE
-    data_date_begin >= '2026-04-01'
-    AND data_date_begin < '2026-05-01'
-    AND price  IS NOT NULL
-    AND type   IS NOT NULL
-    AND diagonal_category IS NOT NULL
-"""
-
-SQL_TOP_BRANDS = """
--- Топ брендов-конкурентов по выручке
-SELECT
-    market,
-    brand,
-    ROUND(SUM(revenue),0) AS total_revenue,
-    COUNT(DISTINCT asin)  AS skus,
-    ROUND(AVG(CAST(rating AS DECIMAL(3,1))),2) AS avg_rating,
-    ROUND(AVG(CAST(reviews AS UNSIGNED)),0) AS avg_reviews
-FROM amazon_competitors
-WHERE
-    data_date_begin >= '2026-04-01'
-    AND data_date_begin < '2026-05-01'
-    AND onkron_competitor = 'competitor'
-    AND brand IS NOT NULL
-GROUP BY market, brand
-ORDER BY total_revenue DESC
-LIMIT 60
-"""
-
-SQL_BSR_RATING = """
--- BSR vs Rating (конкурентоспособность)
-SELECT
-    market,
-    type,
-    diagonal_category,
-    onkron_competitor,
-    brand,
-    CAST(bsr    AS DECIMAL(12,2)) AS bsr,
-    CAST(rating AS DECIMAL(3,1))  AS rating,
-    CAST(reviews AS UNSIGNED)     AS reviews,
-    CAST(revenue AS DECIMAL(14,2)) AS revenue,
-    CAST(price  AS DECIMAL(10,2)) AS price
-FROM amazon_competitors
-WHERE
-    data_date_begin >= '2026-04-01'
-    AND data_date_begin < '2026-05-01'
-    AND bsr    IS NOT NULL
-    AND rating IS NOT NULL
-    AND type   IS NOT NULL
-    AND diagonal_category IS NOT NULL
-"""
-
-
-# ──────────────────────────────────────────────
-# 3. ЗАГРУЗКА ДАННЫХ
-# ──────────────────────────────────────────────
-print("Загружаем данные из analyticallab...")
-df_seg   = run_query(SQL_SEGMENTS)
-df_price = run_query(SQL_PRICE_DIST)
-df_brands= run_query(SQL_TOP_BRANDS)
-df_bsr   = run_query(SQL_BSR_RATING)
-print(f"  Сегменты: {len(df_seg)} строк")
-print(f"  Цены:     {len(df_price)} строк")
-print(f"  Бренды:   {len(df_brands)} строк")
-print(f"  BSR:      {len(df_bsr)} строк")
-
-print("df_seg columns:", list(df_seg.columns))
-print("df_price columns:", list(df_price.columns))
-print("df_brands columns:", list(df_brands.columns))
-print("df_bsr columns:", list(df_bsr.columns))
-# ──────────────────────────────────────────────
-# 4. ВЫЧИСЛЯЕМЫЕ МЕТРИКИ
-# ──────────────────────────────────────────────
-def compute_opportunity_score(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Score = взвешенная оценка привлекательности сегмента для входа/выхода.
-    Факторы:
-      + высокая выручка сегмента          (нормализованная)
-      + высокая цена (маржинальность)      (нормализованная)
-      - большое число игроков (конкуренция)(инвертированная)
-      + доля Onkron низкая (есть куда расти)
-    Score 0–100. >65 → ENTER, <35 → EXIT, иначе WATCH.
-    """
-    comp = df[df["onkron_competitor"] == "competitor"].copy()
-    onk  = df[df["onkron_competitor"] == "onkron"].copy()
-
-    comp_agg = comp.groupby(["market","type","diagonal_category"]).agg(
-        seg_revenue =("total_revenue","sum"),
-        players      =("players","sum"),
-        avg_price    =("avg_price","mean"),
-        avg_rating   =("avg_rating","mean"),
-    ).reset_index()
-
-    onk_agg = onk.groupby(["market","type","diagonal_category"]).agg(
-        onk_revenue=("total_revenue","sum"),
-        onk_players=("players","sum"),
-    ).reset_index()
-
-    merged = comp_agg.merge(onk_agg, on=["market","type","diagonal_category"], how="left")
-    merged["onk_revenue"]  = merged["onk_revenue"].fillna(0)
-    merged["onk_players"]  = merged["onk_players"].fillna(0)
-    merged["onkron_share"] = merged["onk_revenue"] / (merged["seg_revenue"] + merged["onk_revenue"] + 1)
-
-    def norm(s, invert=False):
-        mn, mx = s.min(), s.max()
-        if mx == mn:
-            return pd.Series([0.5]*len(s), index=s.index)
-        n = (s - mn) / (mx - mn)
-        return 1 - n if invert else n
-
-    merged["s_revenue"]     = norm(merged["seg_revenue"])
-    merged["s_price"]       = norm(merged["avg_price"])
-    merged["s_competition"] = norm(merged["players"], invert=True)
-    merged["s_gap"]         = norm(1 - merged["onkron_share"])
-
-    merged["score"] = (
-        merged["s_revenue"]     * 0.35 +
-        merged["s_price"]       * 0.20 +
-        merged["s_competition"] * 0.25 +
-        merged["s_gap"]         * 0.20
-    ) * 100
-
-    merged["recommendation"] = merged["score"].apply(
-        lambda x: "🟢 ENTER" if x >= 65 else ("🔴 EXIT" if x <= 35 else "🟡 WATCH")
-    )
-    return merged
-
-if df_seg.empty:
-    print("SQL_SEGMENTS вернул 0 строк")
-
-    score_df = pd.DataFrame(
-        columns=[
-            "market",
-            "type",
-            "diagonal_category",
-            "seg_revenue",
-            "players",
-            "avg_price",
-            "avg_rating",
-            "onk_revenue",
-            "onk_players",
-            "onkron_share",
-            "score",
-            "recommendation",
-        ]
-    )
-else:
-    score_df = compute_opportunity_score(df_seg)
-
-
-# ──────────────────────────────────────────────
-# 5. DASH APP
-# ──────────────────────────────────────────────
-MARKETS = sorted(df_price["market"].dropna().unique())
-
-if not MARKETS:
-    raise ValueError("Нет рынков в данных. Проверь SQL-запросы.")
-
-COLORS = {
-    "onkron":     "#0066CC",
-    "competitor": "#E8443A",
-    "enter":      "#27AE60",
-    "exit":       "#E74C3C",
-    "watch":      "#F39C12",
-    "bg":         "#F4F6F9",
-    "card":       "#FFFFFF",
-    "text":       "#2C3E50",
-    "accent":     "#2980B9",
-}
-
-app = dash.Dash(__name__, title="PM Dashboard · Amazon Wall Mounts")
-app.layout = html.Div(style={"fontFamily":"Inter,Arial,sans-serif","backgroundColor":COLORS["bg"],"minHeight":"100vh","padding":"20px"}, children=[
-
-    # ── Заголовок ──
-    html.Div([
-        html.H1("📊 Amazon Wall Mounts — PM Dashboard", style={"color":COLORS["text"],"margin":"0","fontSize":"24px"}),
-        html.P("Куда вводить и откуда выводить продукт · Данные: апрель 2026", style={"color":"#7F8C8D","margin":"4px 0 0"}),
-    ], style={"marginBottom":"20px"}),
-
-    # ── Фильтры ──
-    html.Div([
-        html.Div([
-            html.Label("Рынок", style={"fontWeight":"600","fontSize":"13px","color":COLORS["text"]}),
-            dcc.Dropdown(id="dd-market", options=[{"label":m,"value":m} for m in MARKETS],
-                         value=MARKETS[0], clearable=False, style={"fontSize":"13px"}),
-        ], style={"width":"200px"}),
-        html.Div([
-            html.Label("Тип продукта", style={"fontWeight":"600","fontSize":"13px","color":COLORS["text"]}),
-            dcc.Dropdown(id="dd-type", options=[], value=None, placeholder="Все",
-                         style={"fontSize":"13px"}),
-        ], style={"width":"260px","marginLeft":"16px"}),
-    ], style={"display":"flex","alignItems":"flex-end","marginBottom":"20px"}),
-
-    # ── KPI-карточки ──
-    html.Div(id="kpi-cards", style={"display":"flex","gap":"12px","marginBottom":"20px","flexWrap":"wrap"}),
-
-    # ── Строка 1: Opportunity Matrix + Score Table ──
-    html.Div([
-        html.Div([
-            html.H3("🎯 Opportunity Matrix", style={"margin":"0 0 8px","fontSize":"15px","color":COLORS["text"]}),
-            html.P("Пузырь = выручка сегмента. Ось X = конкуренция (игроков), Ось Y = Score привлекательности.",
-                   style={"fontSize":"11px","color":"#95A5A6","margin":"0 0 8px"}),
-            dcc.Graph(id="bubble-chart", style={"height":"380px"}),
-        ], style={"flex":"1","background":COLORS["card"],"borderRadius":"10px","padding":"16px","boxShadow":"0 2px 8px rgba(0,0,0,.07)"}),
-
-        html.Div([
-            html.H3("📋 Рекомендации по сегментам", style={"margin":"0 0 8px","fontSize":"15px","color":COLORS["text"]}),
-            dash_table.DataTable(
-                id="score-table",
-                columns=[
-                    {"name":"Тип",       "id":"type"},
-                    {"name":"Диагональ", "id":"diagonal_category"},
-                    {"name":"Выручка €", "id":"seg_revenue","type":"numeric","format":{"specifier":",.0f"}},
-                    {"name":"Игроков",   "id":"players","type":"numeric"},
-                    {"name":"Ср. цена",  "id":"avg_price","type":"numeric","format":{"specifier":".2f"}},
-                    {"name":"Score",     "id":"score","type":"numeric","format":{"specifier":".1f"}},
-                    {"name":"Решение",   "id":"recommendation"},
-                ],
-                style_table={"height":"340px","overflowY":"auto"},
-                style_cell={"fontSize":"12px","padding":"6px 10px","textAlign":"left","fontFamily":"Inter,Arial,sans-serif"},
-                style_header={"backgroundColor":"#EBF5FB","fontWeight":"700","fontSize":"12px"},
-                style_data_conditional=[
-                    {"if":{"filter_query":'{recommendation} contains "ENTER"'},"backgroundColor":"#EAFAF1","color":"#1E8449"},
-                    {"if":{"filter_query":'{recommendation} contains "EXIT"'},"backgroundColor":"#FDEDEC","color":"#C0392B"},
-                    {"if":{"filter_query":'{recommendation} contains "WATCH"'},"backgroundColor":"#FEF9E7","color":"#B7770D"},
-                ],
-                sort_action="native",
-                page_size=20,
-            ),
-        ], style={"width":"460px","background":COLORS["card"],"borderRadius":"10px","padding":"16px","boxShadow":"0 2px 8px rgba(0,0,0,.07)","marginLeft":"12px"}),
-    ], style={"display":"flex","marginBottom":"12px"}),
-
-    # ── Строка 2: Выручка по сегментам + Ценовые ниши ──
-    html.Div([
-        html.Div([
-            html.H3("💰 Выручка: Onkron vs Конкуренты", style={"margin":"0 0 8px","fontSize":"15px","color":COLORS["text"]}),
-            dcc.Graph(id="revenue-bar", style={"height":"330px"}),
-        ], style={"flex":"1","background":COLORS["card"],"borderRadius":"10px","padding":"16px","boxShadow":"0 2px 8px rgba(0,0,0,.07)"}),
-
-        html.Div([
-            html.H3("💲 Ценовые ниши в сегменте", style={"margin":"0 0 8px","fontSize":"15px","color":COLORS["text"]}),
-            html.P("Выберите тип и диагональ для детализации.", style={"fontSize":"11px","color":"#95A5A6","margin":"0 0 4px"}),
-            dcc.Dropdown(id="dd-diag", options=[], value=None, placeholder="Диагональ",
-                         style={"fontSize":"12px","marginBottom":"8px"}),
-            dcc.Graph(id="price-box", style={"height":"280px"}),
-        ], style={"width":"420px","background":COLORS["card"],"borderRadius":"10px","padding":"16px","boxShadow":"0 2px 8px rgba(0,0,0,.07)","marginLeft":"12px"}),
-    ], style={"display":"flex","marginBottom":"12px"}),
-
-    # ── Строка 3: BSR vs Rating + Топ брендов ──
-    html.Div([
-        html.Div([
-            html.H3("⭐ BSR vs Рейтинг (конкурентная карта)", style={"margin":"0 0 8px","fontSize":"15px","color":COLORS["text"]}),
-            html.P("Лучшая позиция: низкий BSR + высокий рейтинг (правый нижний угол).",
-                   style={"fontSize":"11px","color":"#95A5A6","margin":"0 0 8px"}),
-            dcc.Graph(id="bsr-scatter", style={"height":"340px"}),
-        ], style={"flex":"1","background":COLORS["card"],"borderRadius":"10px","padding":"16px","boxShadow":"0 2px 8px rgba(0,0,0,.07)"}),
-
-        html.Div([
-            html.H3("🏆 Топ-15 конкурентов по выручке", style={"margin":"0 0 8px","fontSize":"15px","color":COLORS["text"]}),
-            dcc.Graph(id="brands-bar", style={"height":"340px"}),
-        ], style={"width":"420px","background":COLORS["card"],"borderRadius":"10px","padding":"16px","boxShadow":"0 2px 8px rgba(0,0,0,.07)","marginLeft":"12px"}),
-    ], style={"display":"flex","marginBottom":"12px"}),
-
-    # ── Строка 4: Heatmap (сегмент × диагональ) ──
-    html.Div([
-        html.Div([
-            html.H3("🔥 Тепловая карта выручки: Тип × Диагональ", style={"margin":"0 0 8px","fontSize":"15px","color":COLORS["text"]}),
-            html.P("Весь рынок (конкуренты + Onkron). Красный = высокая выручка → привлекательный сегмент.",
-                   style={"fontSize":"11px","color":"#95A5A6","margin":"0 0 8px"}),
-            dcc.Graph(id="heatmap", style={"height":"320px"}),
-        ], style={"flex":"1","background":COLORS["card"],"borderRadius":"10px","padding":"16px","boxShadow":"0 2px 8px rgba(0,0,0,.07)"}),
-
-        html.Div([
-            html.H3("📈 Уровень проникновения Onkron", style={"margin":"0 0 8px","fontSize":"15px","color":COLORS["text"]}),
-            html.P("Доля выручки Onkron от общей выручки сегмента. Низкая доля = пространство для роста.",
-                   style={"fontSize":"11px","color":"#95A5A6","margin":"0 0 8px"}),
-            dcc.Graph(id="share-chart", style={"height":"320px"}),
-        ], style={"width":"440px","background":COLORS["card"],"borderRadius":"10px","padding":"16px","boxShadow":"0 2px 8px rgba(0,0,0,.07)","marginLeft":"12px"}),
-    ], style={"display":"flex","marginBottom":"12px"}),
-
-    # Примечание
-    html.P("Источник: analyticallab → amazon_competitors | Период: апрель 2026 | Onkron MCP",
-           style={"fontSize":"11px","color":"#BDC3C7","textAlign":"right","marginTop":"8px"}),
-])
-
-
-# ──────────────────────────────────────────────
-# 6. CALLBACKS
-# ──────────────────────────────────────────────
-
-def card(label, value, color="#2980B9", subtitle=""):
-    return html.Div([
-        html.P(label, style={"margin":"0","fontSize":"11px","color":"#7F8C8D","fontWeight":"600","textTransform":"uppercase","letterSpacing":"0.5px"}),
-        html.H2(value, style={"margin":"4px 0 0","fontSize":"22px","color":color,"fontWeight":"700"}),
-        html.P(subtitle, style={"margin":"0","fontSize":"10px","color":"#95A5A6"}),
-    ], style={"background":COLORS["card"],"borderRadius":"10px","padding":"14px 18px",
-              "boxShadow":"0 2px 8px rgba(0,0,0,.07)","minWidth":"140px","borderTop":f"3px solid {color}"})
-
-
-@app.callback(
-    Output("dd-type","options"), Output("dd-type","value"),
-    Input("dd-market","value")
-)
-def update_type_options(market):
-    types = sorted(df_seg[df_seg["market"]==market]["type"].dropna().unique())
-    opts = [{"label":t,"value":t} for t in types]
-    return opts, None
-
-
-@app.callback(
-    Output("dd-diag","options"), Output("dd-diag","value"),
-    Input("dd-market","value"), Input("dd-type","value")
-)
-def update_diag_options(market, ptype):
-    sub = df_price[df_price["market"]==market]
-    if ptype:
-        sub = sub[sub["type"]==ptype]
-    diags = sorted(sub["diagonal_category"].dropna().unique())
-    opts = [{"label":d,"value":d} for d in diags]
-    val = diags[0] if diags else None
-    return opts, val
-
-
-@app.callback(
-    Output("kpi-cards","children"),
-    Input("dd-market","value"), Input("dd-type","value")
-)
-def update_kpis(market, ptype):
-    sub = df_seg[df_seg["market"]==market]
-    if ptype:
-        sub = sub[sub["type"]==ptype]
-
-    total_rev  = sub["total_revenue"].sum()
-    onk_rev    = sub[sub["onkron_competitor"]=="onkron"]["total_revenue"].sum()
-    comp_rev   = sub[sub["onkron_competitor"]=="competitor"]["total_revenue"].sum()
-    share      = onk_rev / (total_rev + 1) * 100
-    n_players  = sub[sub["onkron_competitor"]=="competitor"]["players"].sum()
-    avg_price_c= sub[sub["onkron_competitor"]=="competitor"]["avg_price"].mean()
-
-    best_seg = score_df[score_df["market"]==market].nlargest(1,"score")
-    best_label = ""
-    if not best_seg.empty:
-        r = best_seg.iloc[0]
-        best_label = f"{r['type'][:20]} / {r['diagonal_category']}"
-
-    return [
-        card("Выручка рынка",     f"€{total_rev:,.0f}",   "#2980B9"),
-        card("Выручка Onkron",    f"€{onk_rev:,.0f}",     "#27AE60"),
-        card("Доля Onkron",       f"{share:.1f}%",         "#8E44AD" if share<5 else "#27AE60", "низкая → есть пространство" if share<5 else ""),
-        card("Конкурентов (SKU)", f"{int(n_players)}",     "#E67E22"),
-        card("Ср. цена конк.",    f"€{avg_price_c:.2f}",  "#16A085"),
-        card("Топ сегмент",       best_label,              "#27AE60", "🟢 ENTER"),
+    load_candidates = [
+        "load_capacity_kg_category",
+        "load_capacity_category",
+        "max_load_capacity_kg",
+        "load_capacity_kg",
+        "max_load",
+        "weight_capacity",
     ]
 
+    existing_load_cols = [c for c in load_candidates if c in available_cols]
 
-@app.callback(
-    Output("bubble-chart","figure"),
-    Input("dd-market","value"), Input("dd-type","value")
-)
-def update_bubble(market, ptype):
-    sub = score_df[score_df["market"]==market].copy()
-    if ptype:
-        sub = sub[sub["type"]==ptype]
+    if existing_load_cols:
+        load_expr = "COALESCE(" + ", ".join(existing_load_cols) + ") AS load_category_raw"
+    else:
+        load_expr = "'' AS load_category_raw"
 
-    color_map = {"🟢 ENTER": COLORS["enter"], "🔴 EXIT": COLORS["exit"], "🟡 WATCH": COLORS["watch"]}
-    fig = go.Figure()
-    for rec, grp in sub.groupby("recommendation"):
-        fig.add_trace(go.Scatter(
-            x=grp["players"], y=grp["score"],
-            mode="markers+text",
-            marker=dict(
-                size=[math.sqrt(max(r,1))/8 for r in grp["seg_revenue"]],
-                color=color_map.get(rec,"gray"), opacity=0.75,
-                line=dict(width=1,color="white"),
-                sizemode="area", sizeref=0.5,
-            ),
-            text=[f"{t[:14]}<br>{d}" for t,d in zip(grp["type"],grp["diagonal_category"])],
-            textposition="top center", textfont=dict(size=9),
-            name=rec,
-            hovertemplate=(
-                "<b>%{text}</b><br>"
-                "Игроков: %{x}<br>Score: %{y:.1f}<br>"
-                "Выручка: €%{customdata:,.0f}<extra></extra>"
-            ),
-            customdata=grp["seg_revenue"],
-        ))
-    fig.add_hline(y=65, line_dash="dot", line_color=COLORS["enter"], annotation_text="Enter →")
-    fig.add_hline(y=35, line_dash="dot", line_color=COLORS["exit"],  annotation_text="← Exit")
-    fig.update_layout(
-        xaxis_title="Кол-во конкурентов (SKU)", yaxis_title="Opportunity Score",
-        yaxis=dict(range=[0,105]), margin=dict(l=40,r=10,t=10,b=40),
-        legend=dict(orientation="h",yanchor="bottom",y=1,xanchor="right",x=1),
-        plot_bgcolor="white", paper_bgcolor="white", font=dict(size=11),
+    sql = f"""
+    SELECT
+        market,
+        type,
+        diagonal_category,
+        {load_expr},
+        onkron_competitor,
+        brand,
+        asin,
+        data_date_begin,
+        CAST(price AS DECIMAL(10,2)) AS price,
+        CAST(revenue AS DECIMAL(14,2)) AS revenue,
+        CAST(sales AS DECIMAL(12,2)) AS sales,
+        CAST(rating AS DECIMAL(3,1)) AS rating,
+        CAST(reviews AS UNSIGNED) AS reviews,
+        CAST(bsr AS DECIMAL(12,2)) AS bsr
+    FROM amazon_competitors
+    WHERE
+        data_date_begin >= '2026-03-01'
+        AND data_date_begin < '2026-05-01'
+        AND type IS NOT NULL
+        AND diagonal_category IS NOT NULL
+    """
+
+    df = run_query(sql)
+
+    if df.empty:
+        return df
+
+    numeric_cols = ["price", "revenue", "sales", "rating", "reviews", "bsr"]
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df["revenue"] = df["revenue"].fillna(0)
+    df["sales"] = df["sales"].fillna(0)
+    df["data_date_begin"] = pd.to_datetime(df["data_date_begin"], errors="coerce")
+    df["month"] = df["data_date_begin"].dt.to_period("M").astype(str)
+
+    df["load_category"] = df["load_category_raw"].fillna("").astype(str).str.strip()
+    df.loc[df["load_category"] == "", "load_category"] = "не указано"
+
+    return df
+
+
+def norm(s, invert=False):
+    s = pd.to_numeric(s, errors="coerce").fillna(0)
+    mn, mx = s.min(), s.max()
+
+    if mx == mn:
+        result = pd.Series([0.5] * len(s), index=s.index)
+    else:
+        result = (s - mn) / (mx - mn)
+
+    return 1 - result if invert else result
+
+
+def prepare_score(df):
+    keys = ["market", "type", "diagonal_category", "load_category"]
+
+    seg = (
+        df.groupby(keys + ["onkron_competitor"], dropna=False)
+        .agg(
+            revenue=("revenue", "sum"),
+            sales=("sales", "sum"),
+            skus=("asin", "nunique"),
+            avg_price=("price", "mean"),
+            avg_rating=("rating", "mean"),
+            avg_reviews=("reviews", "mean"),
+            avg_bsr=("bsr", "mean"),
+        )
+        .reset_index()
     )
-    return fig
 
+    comp = seg[seg["onkron_competitor"] == "competitor"]
+    onk = seg[seg["onkron_competitor"] == "onkron"]
 
-@app.callback(
-    Output("score-table","data"),
-    Input("dd-market","value"), Input("dd-type","value")
-)
-def update_table(market, ptype):
-    sub = score_df[score_df["market"]==market].copy()
-    if ptype:
-        sub = sub[sub["type"]==ptype]
-    sub = sub.sort_values("score", ascending=False)
-    sub["seg_revenue"] = sub["seg_revenue"].round(0)
-    sub["avg_price"]   = sub["avg_price"].round(2)
-    sub["score"]       = sub["score"].round(1)
-    return sub[["type","diagonal_category","seg_revenue","players","avg_price","score","recommendation"]].to_dict("records")
-
-
-@app.callback(
-    Output("revenue-bar","figure"),
-    Input("dd-market","value"), Input("dd-type","value")
-)
-def update_revenue(market, ptype):
-    sub = df_seg[df_seg["market"]==market].copy()
-    if ptype:
-        sub = sub[sub["type"]==ptype]
-
-    sub["segment"] = sub["type"].str[:18] + " / " + sub["diagonal_category"]
-    pivot = sub.groupby(["segment","onkron_competitor"])["total_revenue"].sum().reset_index()
-
-    onk  = pivot[pivot["onkron_competitor"]=="onkron"].set_index("segment")["total_revenue"]
-    comp = pivot[pivot["onkron_competitor"]=="competitor"].set_index("segment")["total_revenue"]
-    segs = sorted(set(onk.index) | set(comp.index))
-
-    fig = go.Figure()
-    fig.add_trace(go.Bar(name="Конкуренты", x=segs, y=[comp.get(s,0) for s in segs],
-                         marker_color=COLORS["competitor"], opacity=0.8))
-    fig.add_trace(go.Bar(name="ONKRON",     x=segs, y=[onk.get(s,0) for s in segs],
-                         marker_color=COLORS["onkron"],     opacity=0.9))
-    fig.update_layout(
-        barmode="stack", xaxis_tickangle=-35,
-        yaxis_title="Выручка €", margin=dict(l=40,r=10,t=10,b=90),
-        legend=dict(orientation="h",y=1.05),
-        plot_bgcolor="white", paper_bgcolor="white", font=dict(size=11),
+    comp_agg = (
+        comp.groupby(keys, dropna=False)
+        .agg(
+            competitor_revenue=("revenue", "sum"),
+            competitor_sales=("sales", "sum"),
+            competitor_skus=("skus", "sum"),
+            avg_price=("avg_price", "mean"),
+            avg_rating=("avg_rating", "mean"),
+            avg_reviews=("avg_reviews", "mean"),
+            avg_bsr=("avg_bsr", "mean"),
+        )
+        .reset_index()
     )
-    return fig
 
-
-@app.callback(
-    Output("price-box","figure"),
-    Input("dd-market","value"), Input("dd-type","value"), Input("dd-diag","value")
-)
-def update_price_box(market, ptype, diag):
-    sub = df_price[(df_price["market"]==market) & df_price["price"].notna()].copy()
-    if ptype:
-        sub = sub[sub["type"]==ptype]
-    if diag:
-        sub = sub[sub["diagonal_category"]==diag]
-    if sub.empty:
-        return go.Figure()
-
-    sub["price"] = pd.to_numeric(sub["price"], errors="coerce")
-    sub["label"] = sub["onkron_competitor"].map({"onkron":"ONKRON","competitor":"Конкуренты"})
-
-    fig = px.violin(sub, x="label", y="price", color="label",
-                    color_discrete_map={"ONKRON":COLORS["onkron"],"Конкуренты":COLORS["competitor"]},
-                    box=True, points="outliers",
-                    labels={"price":"Цена €","label":""})
-    fig.update_layout(
-        showlegend=False, margin=dict(l=30,r=10,t=10,b=30),
-        yaxis_title="Цена €", plot_bgcolor="white", paper_bgcolor="white", font=dict(size=11),
+    onk_agg = (
+        onk.groupby(keys, dropna=False)
+        .agg(
+            onkron_revenue=("revenue", "sum"),
+            onkron_sales=("sales", "sum"),
+            onkron_skus=("skus", "sum"),
+        )
+        .reset_index()
     )
-    return fig
 
+    score = comp_agg.merge(onk_agg, on=keys, how="left")
 
-@app.callback(
-    Output("bsr-scatter","figure"),
-    Input("dd-market","value"), Input("dd-type","value")
-)
-def update_bsr(market, ptype):
-    sub = df_bsr[(df_bsr["market"]==market) & df_bsr["bsr"].notna() & df_bsr["rating"].notna()].copy()
-    if ptype:
-        sub = sub[sub["type"]==ptype]
-    sub = sub.copy()
-    sub["bsr"]    = pd.to_numeric(sub["bsr"], errors="coerce")
-    sub["rating"] = pd.to_numeric(sub["rating"], errors="coerce")
-    sub["revenue"]= pd.to_numeric(sub["revenue"], errors="coerce")
-    sub = sub.dropna(subset=["bsr","rating"])
-    sub = sub[sub["bsr"] < 200_000]  # убираем выбросы
+    for col in ["onkron_revenue", "onkron_sales", "onkron_skus"]:
+        score[col] = score[col].fillna(0)
 
-    color_map = {"onkron":COLORS["onkron"],"competitor":COLORS["competitor"]}
-    fig = px.scatter(sub, x="bsr", y="rating",
-                     color="onkron_competitor",
-                     color_discrete_map=color_map,
-                     size="revenue", size_max=20,
-                     hover_data=["brand","type","diagonal_category","price"],
-                     labels={"bsr":"BSR (чем меньше — тем лучше)","rating":"Рейтинг ⭐","onkron_competitor":""},
-                     opacity=0.65)
-    # Добавляем квадранты
-    med_bsr = sub["bsr"].median()
-    med_rat = sub["rating"].median()
-    fig.add_vline(x=med_bsr, line_dash="dash", line_color="gray", opacity=0.4)
-    fig.add_hline(y=med_rat, line_dash="dash", line_color="gray", opacity=0.4)
-    fig.add_annotation(x=med_bsr*0.5, y=med_rat*1.01, text="🏆 Лидеры", showarrow=False, font=dict(size=10,color="#27AE60"))
-    fig.add_annotation(x=med_bsr*1.5, y=sub["rating"].min()*1.02, text="⚠️ Слабые", showarrow=False, font=dict(size=10,color="#E74C3C"))
-    fig.update_layout(
-        margin=dict(l=40,r=10,t=10,b=40),
-        plot_bgcolor="white", paper_bgcolor="white", font=dict(size=11),
-        legend=dict(orientation="h",y=1.05),
+    score["market_revenue"] = score["competitor_revenue"] + score["onkron_revenue"]
+    score["onkron_share"] = score["onkron_revenue"] / (score["market_revenue"] + 1)
+
+    monthly = (
+        df.groupby(keys + ["month"], dropna=False)
+        .agg(revenue=("revenue", "sum"), sales=("sales", "sum"))
+        .reset_index()
     )
-    return fig
+
+    pivot = monthly.pivot_table(
+        index=keys,
+        columns="month",
+        values=["revenue", "sales"],
+        aggfunc="sum",
+        fill_value=0,
+    )
+
+    pivot.columns = [f"{metric}_{month}" for metric, month in pivot.columns]
+    pivot = pivot.reset_index()
+
+    for col in ["revenue_2026-03", "revenue_2026-04", "sales_2026-03", "sales_2026-04"]:
+        if col not in pivot.columns:
+            pivot[col] = 0
+
+    pivot["revenue_growth_abs"] = pivot["revenue_2026-04"] - pivot["revenue_2026-03"]
+    pivot["revenue_growth_pct"] = np.where(
+        pivot["revenue_2026-03"] > 0,
+        pivot["revenue_growth_abs"] / pivot["revenue_2026-03"] * 100,
+        np.where(pivot["revenue_2026-04"] > 0, 100, 0),
+    )
+
+    score = score.merge(pivot, on=keys, how="left")
+
+    score["s_revenue"] = norm(score["competitor_revenue"])
+    score["s_growth"] = norm(score["revenue_growth_pct"].clip(-100, 300))
+    score["s_price"] = norm(score["avg_price"])
+    score["s_competition"] = norm(score["competitor_skus"], invert=True)
+    score["s_gap"] = norm(1 - score["onkron_share"])
+
+    score["score"] = (
+        score["s_revenue"] * 0.30
+        + score["s_growth"] * 0.25
+        + score["s_price"] * 0.15
+        + score["s_competition"] * 0.15
+        + score["s_gap"] * 0.15
+    ) * 100
+
+    def rec(row):
+        if row["score"] >= 65 and row["revenue_growth_pct"] >= 0 and row["onkron_share"] < 0.2:
+            return "ENTER"
+        if row["score"] <= 35 or row["revenue_growth_pct"] < -35:
+            return "EXIT"
+        return "WATCH"
+
+    score["recommendation"] = score.apply(rec, axis=1)
+    score["onkron_share_pct"] = score["onkron_share"] * 100
+
+    return score
 
 
-@app.callback(
-    Output("brands-bar","figure"),
-    Input("dd-market","value"), Input("dd-type","value")
+# =========================================================
+# 4. APP
+# =========================================================
+st.title("Amazon Competitors — PM Dashboard")
+st.caption("Фокус: топ конкурентов, score сегментов, динамика март → апрель, решения ENTER / WATCH / EXIT")
+
+try:
+    df = load_data()
+except Exception as e:
+    st.error("Ошибка подключения к базе или загрузки данных.")
+    st.exception(e)
+    st.stop()
+
+if df.empty:
+    st.error("Нет данных за март–апрель 2026.")
+    st.stop()
+
+score_df = prepare_score(df)
+
+
+# =========================================================
+# 5. FILTERS
+# =========================================================
+markets = sorted(df["market"].dropna().unique())
+
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    market = st.selectbox("Рынок", markets)
+
+filtered = df[df["market"] == market].copy()
+
+with col2:
+    types = ["Все"] + sorted(filtered["type"].dropna().unique())
+    selected_type = st.selectbox("Тип", types)
+
+if selected_type != "Все":
+    filtered = filtered[filtered["type"] == selected_type]
+
+with col3:
+    diags = ["Все"] + sorted(filtered["diagonal_category"].dropna().unique())
+    selected_diag = st.selectbox("Диагональ", diags)
+
+if selected_diag != "Все":
+    filtered = filtered[filtered["diagonal_category"] == selected_diag]
+
+with col4:
+    loads = ["Все"] + sorted(filtered["load_category"].dropna().unique())
+    selected_load = st.selectbox("Нагрузка", loads)
+
+if selected_load != "Все":
+    filtered = filtered[filtered["load_category"] == selected_load]
+
+
+filtered_score = score_df[score_df["market"] == market].copy()
+
+if selected_type != "Все":
+    filtered_score = filtered_score[filtered_score["type"] == selected_type]
+
+if selected_diag != "Все":
+    filtered_score = filtered_score[filtered_score["diagonal_category"] == selected_diag]
+
+if selected_load != "Все":
+    filtered_score = filtered_score[filtered_score["load_category"] == selected_load]
+
+
+# =========================================================
+# 6. KPI
+# =========================================================
+apr = filtered[filtered["month"] == "2026-04"]
+mar = filtered[filtered["month"] == "2026-03"]
+
+apr_revenue = apr["revenue"].sum()
+mar_revenue = mar["revenue"].sum()
+
+growth = ((apr_revenue - mar_revenue) / mar_revenue * 100) if mar_revenue else 0
+
+onkron_revenue = apr[apr["onkron_competitor"] == "onkron"]["revenue"].sum()
+onkron_share = onkron_revenue / (apr_revenue + 1) * 100
+
+competitor_skus = apr[apr["onkron_competitor"] == "competitor"]["asin"].nunique()
+
+enter_count = int((filtered_score["recommendation"] == "ENTER").sum())
+exit_count = int((filtered_score["recommendation"] == "EXIT").sum())
+
+k1, k2, k3, k4, k5, k6 = st.columns(6)
+
+k1.metric("Оборот апрель", f"€{apr_revenue:,.0f}")
+k2.metric("Рост к марту", f"{growth:.1f}%")
+k3.metric("Доля Onkron", f"{onkron_share:.1f}%")
+k4.metric("SKU конкурентов", f"{competitor_skus:,}")
+k5.metric("Сегментов ENTER", enter_count)
+k6.metric("Сегментов EXIT", exit_count)
+
+
+# =========================================================
+# 7. CHART 1 — TOP COMPETITORS
+# =========================================================
+st.subheader("1. Топ конкурентов по обороту")
+
+top_comp = (
+    apr[apr["onkron_competitor"] == "competitor"]
+    .groupby("brand", dropna=False)
+    .agg(
+        revenue=("revenue", "sum"),
+        skus=("asin", "nunique"),
+        avg_price=("price", "mean"),
+        avg_rating=("rating", "mean"),
+    )
+    .reset_index()
+    .sort_values("revenue", ascending=False)
+    .head(15)
 )
-def update_brands(market, ptype):
-    sub = df_brands[df_brands["market"]==market].copy()
-    top = sub.nlargest(15,"total_revenue")
-    colors_list = [COLORS["onkron"] if b=="ONKRON" else COLORS["competitor"] for b in top["brand"]]
-    fig = go.Figure(go.Bar(
-        x=top["total_revenue"], y=top["brand"],
+
+if top_comp.empty:
+    st.info("Нет данных по конкурентам.")
+else:
+    fig_top = px.bar(
+        top_comp.sort_values("revenue"),
+        x="revenue",
+        y="brand",
         orientation="h",
-        marker_color=colors_list,
-        text=[f"€{v:,.0f}" for v in top["total_revenue"]],
-        textposition="outside", textfont=dict(size=10),
-    ))
-    fig.update_layout(
-        xaxis_title="Выручка €", yaxis=dict(autorange="reversed"),
-        margin=dict(l=10,r=60,t=10,b=40),
-        plot_bgcolor="white", paper_bgcolor="white", font=dict(size=11),
+        text="revenue",
+        hover_data=["skus", "avg_price", "avg_rating"],
+        labels={
+            "revenue": "Оборот, €",
+            "brand": "Бренд",
+            "skus": "SKU",
+            "avg_price": "Средняя цена",
+            "avg_rating": "Средний рейтинг",
+        },
     )
-    return fig
+    fig_top.update_traces(texttemplate="€%{text:,.0f}", textposition="outside")
+    fig_top.update_layout(height=520, margin=dict(l=10, r=80, t=20, b=40))
+    st.plotly_chart(fig_top, use_container_width=True)
 
 
-@app.callback(
-    Output("heatmap","figure"),
-    Input("dd-market","value")
+# =========================================================
+# 8. CHART 2 — SCORE
+# =========================================================
+st.subheader("2. Score сегментов: тип × диагональ × нагрузка")
+
+if filtered_score.empty:
+    st.info("Нет сегментов для выбранных фильтров.")
+else:
+    plot_score = filtered_score.copy()
+    plot_score["segment"] = (
+        plot_score["type"].astype(str).str[:22]
+        + " / "
+        + plot_score["diagonal_category"].astype(str)
+        + " / "
+        + plot_score["load_category"].astype(str)
+    )
+
+    fig_score = px.scatter(
+        plot_score,
+        x="competitor_skus",
+        y="score",
+        size="competitor_revenue",
+        color="recommendation",
+        hover_name="segment",
+        hover_data={
+            "competitor_revenue": ":,.0f",
+            "revenue_growth_pct": ":.1f",
+            "onkron_share_pct": ":.1f",
+            "avg_price": ":.2f",
+            "competitor_skus": True,
+            "score": ":.1f",
+        },
+        labels={
+            "competitor_skus": "SKU конкурентов",
+            "score": "Opportunity Score",
+            "competitor_revenue": "Оборот конкурентов",
+            "revenue_growth_pct": "Рост оборота, %",
+            "onkron_share_pct": "Доля Onkron, %",
+            "avg_price": "Средняя цена",
+        },
+    )
+
+    fig_score.add_hline(y=65, line_dash="dot", annotation_text="ENTER")
+    fig_score.add_hline(y=35, line_dash="dot", annotation_text="EXIT")
+    fig_score.update_layout(height=520, margin=dict(l=10, r=20, t=20, b=40))
+
+    st.plotly_chart(fig_score, use_container_width=True)
+
+
+# =========================================================
+# 9. CHART 3 — DYNAMICS
+# =========================================================
+st.subheader("3. Динамика оборота март → апрель")
+
+if filtered_score.empty:
+    st.info("Нет данных для динамики.")
+else:
+    growth_df = filtered_score.copy()
+    growth_df["segment"] = (
+        growth_df["type"].astype(str).str[:20]
+        + " / "
+        + growth_df["diagonal_category"].astype(str)
+        + " / "
+        + growth_df["load_category"].astype(str)
+    )
+
+    grown = growth_df.sort_values("revenue_growth_abs", ascending=False).head(10)
+    fallen = growth_df.sort_values("revenue_growth_abs", ascending=True).head(10)
+
+    dyn = pd.concat([fallen, grown], ignore_index=True).drop_duplicates("segment")
+    dyn = dyn.sort_values("revenue_growth_abs")
+
+    fig_dyn = px.bar(
+        dyn,
+        x="revenue_growth_abs",
+        y="segment",
+        orientation="h",
+        color="revenue_growth_abs",
+        text="revenue_growth_abs",
+        hover_data={
+            "revenue_2026-03": ":,.0f",
+            "revenue_2026-04": ":,.0f",
+            "revenue_growth_pct": ":.1f",
+        },
+        labels={
+            "revenue_growth_abs": "Изменение оборота, €",
+            "segment": "Сегмент",
+            "revenue_2026-03": "Март",
+            "revenue_2026-04": "Апрель",
+            "revenue_growth_pct": "Рост, %",
+        },
+    )
+
+    fig_dyn.add_vline(x=0)
+    fig_dyn.update_traces(texttemplate="€%{text:,.0f}", textposition="outside")
+    fig_dyn.update_layout(height=560, margin=dict(l=10, r=80, t=20, b=40))
+
+    st.plotly_chart(fig_dyn, use_container_width=True)
+
+
+# =========================================================
+# 10. TABLE — DECISIONS
+# =========================================================
+st.subheader("4. Куда вводить / откуда выводить продукт")
+
+if filtered_score.empty:
+    st.info("Нет рекомендаций.")
+else:
+    table = filtered_score.copy()
+
+    order = {"ENTER": 0, "WATCH": 1, "EXIT": 2}
+    table["rec_order"] = table["recommendation"].map(order)
+
+    table = table.sort_values(["rec_order", "score"], ascending=[True, False])
+
+    table = table[
+        [
+            "recommendation",
+            "type",
+            "diagonal_category",
+            "load_category",
+            "score",
+            "revenue_2026-03",
+            "revenue_2026-04",
+            "revenue_growth_abs",
+            "revenue_growth_pct",
+            "competitor_skus",
+            "avg_price",
+            "onkron_share_pct",
+        ]
+    ].copy()
+
+    table.columns = [
+        "Решение",
+        "Тип",
+        "Диагональ",
+        "Нагрузка",
+        "Score",
+        "Оборот март",
+        "Оборот апрель",
+        "Прирост €",
+        "Рост %",
+        "SKU конкурентов",
+        "Средняя цена",
+        "Доля Onkron %",
+    ]
+
+    st.dataframe(
+        table,
+        use_container_width=True,
+        height=520
+    )
+
+
+# =========================================================
+# 11. FOOTER
+# =========================================================
+st.caption(
+    "Score = оборот конкурентов 30% + рост 25% + средняя цена 15% + низкая конкуренция 15% + низкая доля Onkron 15%. "
+    "Период: март–апрель 2026."
 )
-def update_heatmap(market):
-    sub = df_seg[df_seg["market"]==market].groupby(["type","diagonal_category"])["total_revenue"].sum().reset_index()
-    pivot = sub.pivot(index="type", columns="diagonal_category", values="total_revenue").fillna(0)
-    fig = go.Figure(go.Heatmap(
-        z=pivot.values, x=list(pivot.columns), y=list(pivot.index),
-        colorscale="RdYlGn", text=[[f"€{v:,.0f}" for v in row] for row in pivot.values],
-        texttemplate="%{text}", textfont=dict(size=9),
-        hovertemplate="<b>%{y}</b><br>%{x}<br>Выручка: %{text}<extra></extra>",
-    ))
-    fig.update_layout(
-        xaxis_title="Диагональ", yaxis_title="",
-        margin=dict(l=10,r=10,t=10,b=40),
-        paper_bgcolor="white", font=dict(size=11),
-    )
-    return fig
-
-
-@app.callback(
-    Output("share-chart","figure"),
-    Input("dd-market","value")
-)
-def update_share(market):
-    sub = df_seg[df_seg["market"]==market].copy()
-    onk  = sub[sub["onkron_competitor"]=="onkron"].groupby("type")["total_revenue"].sum()
-    comp = sub[sub["onkron_competitor"]=="competitor"].groupby("type")["total_revenue"].sum()
-    types = sorted(set(onk.index)|set(comp.index))
-    shares = [(onk.get(t,0)/(onk.get(t,0)+comp.get(t,0)+1))*100 for t in types]
-
-    bar_colors = [COLORS["enter"] if s<10 else (COLORS["watch"] if s<30 else COLORS["onkron"]) for s in shares]
-    fig = go.Figure(go.Bar(
-        x=[t[:22] for t in types], y=shares,
-        marker_color=bar_colors,
-        text=[f"{s:.1f}%" for s in shares],
-        textposition="outside",
-    ))
-    fig.add_hline(y=10, line_dash="dot", line_color=COLORS["enter"], annotation_text="10%")
-    fig.update_layout(
-        yaxis_title="Доля Onkron %", xaxis_tickangle=-35,
-        margin=dict(l=10,r=10,t=10,b=90),
-        plot_bgcolor="white", paper_bgcolor="white", font=dict(size=11),
-    )
-    return fig
-
-
-# ──────────────────────────────────────────────
-# 7. ЗАПУСК
-# ──────────────────────────────────────────────
-if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=8050)
