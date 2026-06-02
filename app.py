@@ -426,9 +426,18 @@ kpi4.metric(
     delta=pp_fmt(onkron_share_delta_pp),
 )
 
+if selected_period == "Март 2026":
+    share_mom_pct = 0
+else:
+    share_mom_pct = (
+        ((onkron_share - prev_onkron_share) / prev_onkron_share) * 100
+        if prev_onkron_share > 0
+        else 0
+    )
+
 kpi5.metric(
-    "ONKRON Share MoM",
-    "Повысилась" if onkron_share_delta_pp > 0 else ("Понизилась" if onkron_share_delta_pp < 0 else "0"),
+    "Рост доли ONKRON MoM",
+    f"{share_mom_pct:.2f}%"
 )
 
 
