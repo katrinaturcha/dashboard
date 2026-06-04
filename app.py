@@ -127,11 +127,6 @@ def pct_fmt(value):
     return f"{value:.2f}%"
 
 
-def pp_fmt(value):
-    value = 0 if pd.isna(value) else float(value)
-    return f"{value:.2f} п.п."
-
-
 def num_fmt(value):
     value = 0 if pd.isna(value) else float(value)
     return f"{value:.2f}"
@@ -161,6 +156,7 @@ def get_prev_period(period_name):
 def load_data():
     sql = """
     SELECT
+        onkron_category,
         market,
         type,
         diagonal_category,
@@ -184,7 +180,23 @@ def load_data():
     if df.empty:
         return df
 
-    df["onkron_competitor"] = df["onkron_competitor"].fillna("").astype(str).str.lower()
+    df["onkron_category"] = (
+        df["onkron_category"]
+        .fillna("Без категории")
+        .astype(str)
+        .str.strip()
+    )
+
+    df["onkron_category"] = df["onkron_category"].replace("", "Без категории")
+
+    df["onkron_competitor"] = (
+        df["onkron_competitor"]
+        .fillna("")
+        .astype(str)
+        .str.lower()
+        .str.strip()
+    )
+
     df["revenue"] = pd.to_numeric(df["revenue"], errors="coerce").fillna(0)
     df["sales"] = pd.to_numeric(df["sales"], errors="coerce").fillna(0)
     df["price"] = pd.to_numeric(df["price"], errors="coerce")
@@ -201,17 +213,34 @@ def load_data():
 # SCORE LOGIC LIKE EXCEL
 # =========================================================
 def prepare_score(df):
-    keys = ["market", "type", "diagonal_category"]
+    keys = ["onkron_category", "market", "type", "diagonal_category"]
 
     if df.empty:
         return pd.DataFrame(
             columns=[
-                "market", "type", "diagonal_category", "revenue", "sales", "players",
-                "avg_price", "onkron_revenue", "onkron_sales_units", "onkron_models",
-                "revenue_per_player", "onkron_share", "onkron_share_pct",
-                "opportunity_gap", "opportunity_gap_pct", "revenue_norm",
-                "rev_player_norm", "low_competition_norm", "score", "priority",
-                "status", "recommendation"
+                "onkron_category",
+                "market",
+                "type",
+                "diagonal_category",
+                "revenue",
+                "sales",
+                "players",
+                "avg_price",
+                "onkron_revenue",
+                "onkron_sales_units",
+                "onkron_models",
+                "revenue_per_player",
+                "onkron_share",
+                "onkron_share_pct",
+                "opportunity_gap",
+                "opportunity_gap_pct",
+                "revenue_norm",
+                "rev_player_norm",
+                "low_competition_norm",
+                "score",
+                "priority",
+                "status",
+                "recommendation",
             ]
         )
 
@@ -284,7 +313,7 @@ def prepare_score(df):
     score["priority"] = np.where(
         score["score"] >= THRESHOLD_HIGH,
         "HIGH",
-        np.where(score["score"] >= THRESHOLD_MEDIUM, "MEDIUM", "LOW")
+        np.where(score["score"] >= THRESHOLD_MEDIUM, "MEDIUM", "LOW"),
     )
 
     score["status"] = np.where(
@@ -294,8 +323,8 @@ def prepare_score(df):
             (score["revenue"] >= PIPELINE_MIN_REVENUE)
             & (score["onkron_share_pct"] <= PIPELINE_MAX_ONKRON_SHARE),
             "Потенциальный пайплайн",
-            "Наблюдать / снизить приоритет"
-        )
+            "Наблюдать / снизить приоритет",
+        ),
     )
 
     score["recommendation"] = np.where(
@@ -304,8 +333,8 @@ def prepare_score(df):
         np.where(
             score["status"] == "Потенциальный пайплайн",
             "Оценить запуск / закрыть ассортиментный gap",
-            "Пока не приоритет"
-        )
+            "Пока не приоритет",
+        ),
     )
 
     return score.sort_values("score", ascending=False)
@@ -375,8 +404,9 @@ if df.empty:
 # FILTERS
 # =========================================================
 markets = sorted(df["market"].dropna().unique())
+categories = ["Все категории"] + sorted(df["onkron_category"].dropna().unique())
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns([1, 1, 1])
 
 with col1:
     selected_market = st.selectbox("Рынок", markets)
@@ -387,6 +417,9 @@ with col2:
         list(PERIOD_LABELS.keys()),
         index=list(PERIOD_LABELS.keys()).index(PERIOD_DEFAULT),
     )
+
+with col3:
+    selected_category = st.selectbox("Категория", categories)
 
 CUR = currency_symbol(selected_market)
 
@@ -402,6 +435,9 @@ filtered = df[
     & (df["data_date_begin"] < selected_end_dt)
 ].copy()
 
+if selected_category != "Все категории":
+    filtered = filtered[filtered["onkron_category"] == selected_category].copy()
+
 if prev_start and prev_end:
     prev_start_dt = pd.to_datetime(prev_start)
     prev_end_dt = pd.to_datetime(prev_end)
@@ -411,12 +447,23 @@ if prev_start and prev_end:
         & (df["data_date_begin"] >= prev_start_dt)
         & (df["data_date_begin"] < prev_end_dt)
     ].copy()
+
+    if selected_category != "Все категории":
+        prev_filtered = prev_filtered[
+            prev_filtered["onkron_category"] == selected_category
+        ].copy()
 else:
     prev_filtered = pd.DataFrame(columns=df.columns)
 
+if filtered.empty:
+    st.warning("Нет данных по выбранным фильтрам.")
+    st.stop()
+
 filtered_score = prepare_score(filtered)
 
-st.caption(f"Данные за {selected_period}")
+st.caption(
+    f"Данные за {selected_period} | Рынок: {selected_market} | Категория: {selected_category}"
+)
 
 
 # =========================================================
@@ -481,6 +528,75 @@ kpi5.metric(
 
 
 # =========================================================
+# CATEGORY SUMMARY
+# =========================================================
+st.subheader("Сводка по категориям")
+
+category_summary = (
+    filtered.groupby("onkron_category", dropna=False)
+    .agg(
+        revenue=("revenue", "sum"),
+        sales=("sales", "sum"),
+        asin_count=("asin", "nunique"),
+    )
+    .reset_index()
+)
+
+category_onkron = (
+    filtered[filtered["onkron_competitor"] == "onkron"]
+    .groupby("onkron_category", dropna=False)
+    .agg(
+        onkron_revenue=("revenue", "sum"),
+        onkron_sales=("sales", "sum"),
+        onkron_models=("asin", "nunique"),
+    )
+    .reset_index()
+)
+
+category_summary = category_summary.merge(
+    category_onkron,
+    on="onkron_category",
+    how="left",
+)
+
+for col in ["onkron_revenue", "onkron_sales", "onkron_models"]:
+    category_summary[col] = category_summary[col].fillna(0)
+
+category_summary["onkron_share_pct"] = (
+    category_summary["onkron_revenue"] / (category_summary["revenue"] + 1) * 100
+)
+
+category_summary = category_summary.sort_values("revenue", ascending=False)
+
+category_show = category_summary.copy()
+category_show.columns = [
+    "Категория",
+    "Revenue",
+    "Sales",
+    "ASINs",
+    "ONKRON Revenue",
+    "ONKRON Sales",
+    "ONKRON Models",
+    "ONKRON Share",
+]
+
+category_show["Revenue"] = category_show["Revenue"].apply(lambda x: money_fmt(x, CUR))
+category_show["Sales"] = category_show["Sales"].apply(int_fmt)
+category_show["ASINs"] = category_show["ASINs"].apply(int_fmt)
+category_show["ONKRON Revenue"] = category_show["ONKRON Revenue"].apply(lambda x: money_fmt(x, CUR))
+category_show["ONKRON Sales"] = category_show["ONKRON Sales"].apply(int_fmt)
+category_show["ONKRON Models"] = category_show["ONKRON Models"].apply(int_fmt)
+category_show["ONKRON Share"] = category_show["ONKRON Share"].apply(pct_fmt)
+
+st.dataframe(
+    category_show,
+    use_container_width=True,
+    height=260,
+    hide_index=True,
+)
+
+
+# =========================================================
 # TOP POTENTIAL PIPELINE
 # =========================================================
 st.subheader("Top Potential Pipeline")
@@ -494,6 +610,7 @@ if pipeline.empty:
 else:
     pipeline_show = pipeline[
         [
+            "onkron_category",
             "type",
             "diagonal_category",
             "revenue",
@@ -506,6 +623,7 @@ else:
     ].copy()
 
     pipeline_show.columns = [
+        "Категория",
         "Type",
         "Diagonal Category",
         "Выручка",
@@ -541,7 +659,9 @@ if top_segments.empty:
     st.info("Нет данных по сегментам.")
 else:
     top_segments["segment"] = (
-        top_segments["type"].astype(str)
+        top_segments["onkron_category"].astype(str)
+        + " | "
+        + top_segments["type"].astype(str)
         + " | "
         + top_segments["diagonal_category"].astype(str)
     )
@@ -580,6 +700,50 @@ else:
     )
 
     st.plotly_chart(fig, use_container_width=True)
+
+
+# =========================================================
+# CATEGORY REVENUE CHART
+# =========================================================
+st.subheader("Выручка по категориям")
+
+if category_summary.empty:
+    st.info("Нет данных по категориям.")
+else:
+    fig_category = px.bar(
+        category_summary.sort_values("revenue"),
+        x="revenue",
+        y="onkron_category",
+        orientation="h",
+        text="revenue",
+        labels={
+            "revenue": f"Revenue, {CUR}",
+            "onkron_category": "Категория",
+        },
+    )
+
+    if CUR == "RUB":
+        fig_category.update_traces(
+            texttemplate="%{text:,.2f} RUB",
+            textposition="outside",
+            cliponaxis=False,
+        )
+    else:
+        fig_category.update_traces(
+            texttemplate=f"{CUR} %{{text:,.2f}}",
+            textposition="outside",
+            cliponaxis=False,
+        )
+
+    fig_category.update_layout(
+        height=max(420, len(category_summary) * 35),
+        margin=dict(l=10, r=140, t=20, b=40),
+        showlegend=False,
+        yaxis=dict(automargin=True),
+        xaxis=dict(fixedrange=False),
+    )
+
+    st.plotly_chart(fig_category, use_container_width=True)
 
 
 # =========================================================
@@ -624,6 +788,7 @@ st.subheader("Основная таблица скоринга")
 
 table = filtered_score[
     [
+        "onkron_category",
         "type",
         "diagonal_category",
         "revenue",
@@ -647,6 +812,7 @@ table = filtered_score[
 ].copy()
 
 table.columns = [
+    "Категория",
     "Type",
     "Diagonal Category",
     "Revenue",
