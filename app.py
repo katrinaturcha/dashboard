@@ -534,7 +534,7 @@ def show_brand_chart(filtered, cur):
 
     chart_height = max(650, len(brand_df) * 34)
 
-    fig = make_subplots(specs=[[{"secondary_x": True}]])
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
 
     fig.add_trace(
         go.Bar(
@@ -559,7 +559,7 @@ def show_brand_chart(filtered, cur):
                 + "<extra></extra>"
             ),
         ),
-        secondary_x=False,
+        secondary_y=False,
     )
 
     fig.add_trace(
@@ -567,18 +567,18 @@ def show_brand_chart(filtered, cur):
             y=brand_df["brand"],
             x=brand_df["market_share_pct"],
             name="Доля рынка",
-            mode="lines+markers+text",
+            mode="markers+text",
             text=brand_df["market_share_pct"],
             texttemplate="%{text:.2f}%",
             textposition="middle right",
             hovertemplate="<b>%{y}</b><br>Доля рынка: %{x:.2f}%<extra></extra>",
         ),
-        secondary_x=True,
+        secondary_y=True,
     )
 
     fig.update_layout(
         height=chart_height,
-        margin=dict(l=10, r=140, t=40, b=40),
+        margin=dict(l=10, r=160, t=40, b=40),
         legend=dict(
             orientation="h",
             yanchor="bottom",
@@ -594,15 +594,18 @@ def show_brand_chart(filtered, cur):
 
     fig.update_xaxes(
         title_text=f"Выручка, {cur}",
-        secondary_x=False,
         fixedrange=False,
     )
 
-    fig.update_xaxes(
+    fig.update_yaxes(
+        title_text="Бренд",
+        automargin=True,
+        secondary_y=False,
+    )
+
+    fig.update_yaxes(
         title_text="Доля рынка, %",
-        ticksuffix="%",
-        secondary_x=True,
-        fixedrange=False,
+        secondary_y=True,
     )
 
     with st.container(height=720):
