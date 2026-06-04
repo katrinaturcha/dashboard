@@ -4,15 +4,15 @@ import pandas as pd
 import pymysql
 import streamlit as st
 import plotly.express as px
-from plotly.subplots import make_subplots
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 
 # =========================================================
 # PAGE CONFIG
 # =========================================================
 st.set_page_config(
-    page_title="Аналитика рынка",
+    page_title="Анализ рынка",
     layout="wide"
 )
 
@@ -162,6 +162,7 @@ def load_data():
         market,
         type,
         diagonal_category,
+        load_capacity_kg_category,
         onkron_competitor,
         brand,
         asin,
@@ -190,26 +191,56 @@ def load_data():
     )
     df["onkron_category"] = df["onkron_category"].replace("", "Без категории")
 
-    df["onkron_competitor"] = df["onkron_competitor"].fillna("").astype(str).str.lower()
+    df["onkron_competitor"] = (
+        df["onkron_competitor"]
+        .fillna("")
+        .astype(str)
+        .str.lower()
+        .str.strip()
+    )
+
+    df["brand"] = df["brand"].fillna("Без бренда").astype(str).str.strip()
+    df["brand"] = df["brand"].replace("", "Без бренда")
+
+    df["type"] = df["type"].fillna("Без типа").astype(str).str.strip()
+    df["type"] = df["type"].replace("", "Без типа")
+
+    df["diagonal_category"] = (
+        df["diagonal_category"]
+        .fillna("Без диагонали")
+        .astype(str)
+        .str.strip()
+    )
+    df["diagonal_category"] = df["diagonal_category"].replace("", "Без диагонали")
+
+    df["load_capacity_kg_category"] = (
+        df["load_capacity_kg_category"]
+        .fillna("Без нагрузки")
+        .astype(str)
+        .str.strip()
+    )
+    df["load_capacity_kg_category"] = df["load_capacity_kg_category"].replace("", "Без нагрузки")
+
+    df["market"] = df["market"].fillna("").astype(str).str.strip()
+
     df["revenue"] = pd.to_numeric(df["revenue"], errors="coerce").fillna(0)
     df["sales"] = pd.to_numeric(df["sales"], errors="coerce").fillna(0)
     df["price"] = pd.to_numeric(df["price"], errors="coerce")
     df["data_date_begin"] = pd.to_datetime(df["data_date_begin"], errors="coerce")
 
-    df["type"] = df["type"].fillna("").astype(str)
-    df["diagonal_category"] = df["diagonal_category"].fillna("").astype(str)
-    df["market"] = df["market"].fillna("").astype(str)
-    df["brand"] = df["brand"].fillna("Без бренда").astype(str).str.strip()
-    df["brand"] = df["brand"].replace("", "Без бренда")
-
     return df
 
 
 # =========================================================
-# SCORE LOGIC LIKE EXCEL
+# SCORE LOGIC
 # =========================================================
 def prepare_score(df):
-    keys = ["market", "type", "diagonal_category"]
+    keys = [
+        "market",
+        "type",
+        "diagonal_category",
+        "load_capacity_kg_category",
+    ]
 
     if df.empty:
         return pd.DataFrame()
@@ -282,26 +313,26 @@ def prepare_score(df):
 
     score["priority"] = np.where(
         score["score"] >= THRESHOLD_HIGH,
-        "HIGH",
-        np.where(score["score"] >= THRESHOLD_MEDIUM, "MEDIUM", "LOW")
+        "Высокий",
+        np.where(score["score"] >= THRESHOLD_MEDIUM, "Средний", "Низкий")
     )
 
     score["status"] = np.where(
         score["onkron_revenue"] > 0,
-        "Текущий пайплайн",
+        "Текущий ассортимент",
         np.where(
             (score["revenue"] >= PIPELINE_MIN_REVENUE)
             & (score["onkron_share_pct"] <= PIPELINE_MAX_ONKRON_SHARE),
-            "Потенциальный пайплайн",
-            "Наблюдать / снизить приоритет"
+            "Потенциальная возможность",
+            "Низкий приоритет"
         )
     )
 
     score["recommendation"] = np.where(
-        score["status"] == "Текущий пайплайн",
+        score["status"] == "Текущий ассортимент",
         "Масштабировать / защищать позицию",
         np.where(
-            score["status"] == "Потенциальный пайплайн",
+            score["status"] == "Потенциальная возможность",
             "Оценить запуск / закрыть ассортиментный gap",
             "Пока не приоритет"
         )
@@ -313,6 +344,16 @@ def prepare_score(df):
 # =========================================================
 # TABLE HELPER
 # =========================================================
+def priority_style(value):
+    if value == "Высокий":
+        return "background-color: #c6efce; color: #006100; font-weight: 700;"
+    if value == "Средний":
+        return "background-color: #ffeb9c; color: #9c6500; font-weight: 700;"
+    if value == "Низкий":
+        return "background-color: #ffc7ce; color: #9c0006; font-weight: 700;"
+    return ""
+
+
 def show_scoring_table(filtered_score, cur):
     st.subheader("Основная таблица скоринга")
 
@@ -324,6 +365,7 @@ def show_scoring_table(filtered_score, cur):
         [
             "type",
             "diagonal_category",
+            "load_capacity_kg_category",
             "revenue",
             "sales",
             "players",
@@ -345,50 +387,51 @@ def show_scoring_table(filtered_score, cur):
     ].copy()
 
     table.columns = [
-        "Type",
-        "Diagonal Category",
-        "Revenue",
-        "Sales",
-        "Players(ASINs)",
-        "Avg Price",
-        "Revenue per player",
-        "ONKRON Revenue",
-        "ONKRON Sales units",
-        "ONKRON Models",
-        "ONKRON Share",
-        "Opportunity Gap",
-        "Revenue Norm",
-        "Rev/Player Norm",
-        "Low Competition Norm",
+        "Тип продукта",
+        "Диагональ",
+        "Нагрузка",
+        "Выручка рынка",
+        "Продажи, шт.",
+        "Количество ASIN",
+        "Средняя цена",
+        "Выручка на ASIN",
+        "Выручка ONKRON",
+        "Продажи ONKRON, шт.",
+        "Модели ONKRON",
+        "Доля ONKRON",
+        "Разрыв по доле ONKRON",
+        "Индекс выручки",
+        "Индекс выручки на ASIN",
+        "Индекс низкой конкуренции",
         "Score",
         "Приоритет",
         "Статус",
-        "Рекомендации",
+        "Рекомендация",
     ]
 
     money_cols = [
-        "Revenue",
-        "Avg Price",
-        "Revenue per player",
-        "ONKRON Revenue",
+        "Выручка рынка",
+        "Средняя цена",
+        "Выручка на ASIN",
+        "Выручка ONKRON",
     ]
 
     int_cols = [
-        "Sales",
-        "Players(ASINs)",
-        "ONKRON Sales units",
-        "ONKRON Models",
+        "Продажи, шт.",
+        "Количество ASIN",
+        "Продажи ONKRON, шт.",
+        "Модели ONKRON",
     ]
 
     pct_cols = [
-        "ONKRON Share",
-        "Opportunity Gap",
+        "Доля ONKRON",
+        "Разрыв по доле ONKRON",
     ]
 
     num_cols = [
-        "Revenue Norm",
-        "Rev/Player Norm",
-        "Low Competition Norm",
+        "Индекс выручки",
+        "Индекс выручки на ASIN",
+        "Индекс низкой конкуренции",
         "Score",
     ]
 
@@ -404,8 +447,10 @@ def show_scoring_table(filtered_score, cur):
     for col in num_cols:
         table[col] = table[col].apply(num_fmt)
 
+    styled_table = table.style.map(priority_style, subset=["Приоритет"])
+
     st.dataframe(
-        table,
+        styled_table,
         use_container_width=True,
         height=620,
         hide_index=True,
@@ -425,7 +470,7 @@ def make_heatmap(data, value_col, title, text_func, color_scale="YlGn"):
     )
 
     if pivot.empty:
-        st.info(f"Нет данных для {title}")
+        st.info(f"Нет данных для: {title}")
         return
 
     text_values = pivot.map(text_func)
@@ -435,7 +480,11 @@ def make_heatmap(data, value_col, title, text_func, color_scale="YlGn"):
         text_auto=False,
         aspect="auto",
         color_continuous_scale=color_scale,
-        labels=dict(x="Diagonal Category", y="Type", color=title),
+        labels=dict(
+            x="Диагональ",
+            y="Тип продукта",
+            color=title,
+        ),
     )
 
     fig.update_traces(
@@ -459,7 +508,7 @@ def make_heatmap(data, value_col, title, text_func, color_scale="YlGn"):
 # BRAND CHART HELPER
 # =========================================================
 def show_brand_chart(filtered, cur):
-    st.subheader("Топ брендов по выручке и доле рынка")
+    st.subheader("Бренды: выручка и доля рынка")
 
     brand_df = (
         filtered.groupby("brand", dropna=False)
@@ -480,44 +529,20 @@ def show_brand_chart(filtered, cur):
 
     total_revenue = brand_df["revenue"].sum()
     brand_df["market_share_pct"] = brand_df["revenue"] / total_revenue * 100
-    brand_df = brand_df.sort_values("revenue", ascending=False).reset_index(drop=True)
 
-    total_brands = len(brand_df)
+    brand_df = brand_df.sort_values("revenue", ascending=True)
 
-    col1, col2 = st.columns([1, 3])
+    chart_height = max(650, len(brand_df) * 34)
 
-    with col1:
-        window_size = st.selectbox(
-            "Брендов на графике",
-            options=[10, 15, 20, 30, 50],
-            index=2,
-        )
-
-    max_start = max(total_brands - window_size, 0)
-
-    with col2:
-        if max_start > 0:
-            start_idx = st.slider(
-                "Прокрутка брендов",
-                min_value=0,
-                max_value=max_start,
-                value=0,
-                step=1,
-            )
-        else:
-            start_idx = 0
-
-    chart_df = brand_df.iloc[start_idx:start_idx + window_size].copy()
-    chart_df = chart_df.sort_values("revenue", ascending=True)
-
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig = make_subplots(specs=[[{"secondary_x": True}]])
 
     fig.add_trace(
         go.Bar(
-            x=chart_df["brand"],
-            y=chart_df["revenue"],
+            y=brand_df["brand"],
+            x=brand_df["revenue"],
+            orientation="h",
             name="Выручка",
-            text=chart_df["revenue"],
+            text=brand_df["revenue"],
             texttemplate=(
                 "%{text:,.2f} RUB"
                 if cur == "RUB"
@@ -525,39 +550,35 @@ def show_brand_chart(filtered, cur):
             ),
             textposition="outside",
             hovertemplate=(
-                "<b>%{x}</b><br>"
+                "<b>%{y}</b><br>"
                 + (
-                    "Выручка: %{y:,.2f} RUB"
+                    "Выручка: %{x:,.2f} RUB"
                     if cur == "RUB"
-                    else f"Выручка: {cur} %{{y:,.2f}}"
+                    else f"Выручка: {cur} %{{x:,.2f}}"
                 )
                 + "<extra></extra>"
             ),
         ),
-        secondary_y=False,
+        secondary_x=False,
     )
 
     fig.add_trace(
         go.Scatter(
-            x=chart_df["brand"],
-            y=chart_df["market_share_pct"],
+            y=brand_df["brand"],
+            x=brand_df["market_share_pct"],
             name="Доля рынка",
             mode="lines+markers+text",
-            text=chart_df["market_share_pct"],
+            text=brand_df["market_share_pct"],
             texttemplate="%{text:.2f}%",
-            textposition="top center",
-            hovertemplate=(
-                "<b>%{x}</b><br>"
-                "Доля рынка: %{y:.2f}%"
-                "<extra></extra>"
-            ),
+            textposition="middle right",
+            hovertemplate="<b>%{y}</b><br>Доля рынка: %{x:.2f}%<extra></extra>",
         ),
-        secondary_y=True,
+        secondary_x=True,
     )
 
     fig.update_layout(
-        height=620,
-        margin=dict(l=10, r=10, t=40, b=160),
+        height=chart_height,
+        margin=dict(l=10, r=140, t=40, b=40),
         legend=dict(
             orientation="h",
             yanchor="bottom",
@@ -565,39 +586,34 @@ def show_brand_chart(filtered, cur):
             xanchor="right",
             x=1,
         ),
-        xaxis=dict(
+        yaxis=dict(
             title="Бренд",
-            tickangle=-45,
             automargin=True,
         ),
     )
 
-    fig.update_yaxes(
+    fig.update_xaxes(
         title_text=f"Выручка, {cur}",
-        secondary_y=False,
+        secondary_x=False,
         fixedrange=False,
     )
 
-    fig.update_yaxes(
+    fig.update_xaxes(
         title_text="Доля рынка, %",
-        secondary_y=True,
         ticksuffix="%",
+        secondary_x=True,
         fixedrange=False,
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    with st.container(height=720):
+        st.plotly_chart(fig, use_container_width=True)
 
-    st.caption(
-        f"Показаны бренды {start_idx + 1}–{min(start_idx + window_size, total_brands)} "
-        f"из {total_brands}, отсортированные по выручке."
-    )
+    st.caption("Бренды отсортированы по выручке. Прокрутка вниз доступна внутри блока графика.")
 
 
 # =========================================================
 # LOAD APP DATA
 # =========================================================
-st.title("Куда вводить продукт")
-
 try:
     df = load_data()
 except Exception as e:
@@ -611,12 +627,25 @@ if df.empty:
 
 
 # =========================================================
+# HEADER + CATEGORY FILTER
+# =========================================================
+categories = ["Все категории"] + sorted(df["onkron_category"].dropna().unique())
+
+header_col, category_col = st.columns([3, 1])
+
+with header_col:
+    st.title("Анализ рынка")
+
+with category_col:
+    selected_category = st.selectbox("Категория", categories)
+
+
+# =========================================================
 # FILTERS
 # =========================================================
 markets = sorted(df["market"].dropna().unique())
-categories = ["Все категории"] + sorted(df["onkron_category"].dropna().unique())
 
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 
 with col1:
     selected_market = st.selectbox("Рынок", markets)
@@ -627,9 +656,6 @@ with col2:
         list(PERIOD_LABELS.keys()),
         index=list(PERIOD_LABELS.keys()).index(PERIOD_DEFAULT),
     )
-
-with col3:
-    selected_category = st.selectbox("Категория", categories)
 
 CUR = currency_symbol(selected_market)
 
@@ -671,7 +697,7 @@ if filtered.empty:
 
 filtered_score = prepare_score(filtered)
 
-st.caption(f"Данные за {selected_period}")
+st.caption(f"Данные за период: {selected_period}")
 
 
 # =========================================================
@@ -705,7 +731,7 @@ else:
         else 0
     )
 
-kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
 kpi1.metric(
     "Объем рынка",
@@ -727,24 +753,20 @@ kpi3.metric(
 kpi4.metric(
     "Доля ONKRON",
     pct_fmt(onkron_share),
-)
-
-kpi5.metric(
-    "Рост доли ONKRON MoM",
-    f"{onkron_share_mom_pct:.2f}%",
+    delta=f"{onkron_share_mom_pct:.2f}% MoM",
 )
 
 
 # =========================================================
-# MAIN SCORING TABLE INSTEAD OF TOP POTENTIAL PIPELINE
+# MAIN SCORING TABLE
 # =========================================================
 show_scoring_table(filtered_score, CUR)
 
 
 # =========================================================
-# TOP SEGMENTS BY REVENUE — ONLY CHART
+# TOP SEGMENTS BY REVENUE
 # =========================================================
-st.subheader("Top-10 segments by Revenue")
+st.subheader("Топ-10 сегментов по выручке")
 
 top_segments = filtered_score.sort_values("revenue", ascending=False).head(10).copy()
 
@@ -755,6 +777,8 @@ else:
         top_segments["type"].astype(str)
         + " | "
         + top_segments["diagonal_category"].astype(str)
+        + " | "
+        + top_segments["load_capacity_kg_category"].astype(str)
     )
 
     fig = px.bar(
@@ -764,8 +788,8 @@ else:
         orientation="h",
         text="revenue",
         labels={
-            "revenue": f"Revenue, {CUR}",
-            "segment": "Segment",
+            "revenue": f"Выручка, {CUR}",
+            "segment": "Сегмент",
         },
     )
 
@@ -783,7 +807,7 @@ else:
         )
 
     fig.update_layout(
-        height=520,
+        height=560,
         margin=dict(l=10, r=140, t=20, b=40),
         showlegend=False,
         yaxis=dict(automargin=True),
@@ -796,15 +820,19 @@ else:
 # =========================================================
 # HEATMAP MATRICES
 # =========================================================
-st.subheader("Матрицы Type × Diagonal Category")
+st.subheader("Матрицы: тип продукта × диагональ")
 
-tab1, tab2, tab3 = st.tabs(["ONKRON Share", "Score", "Revenue"])
+tab1, tab2, tab3 = st.tabs([
+    "Доля ONKRON",
+    "Итоговый score",
+    "Выручка рынка",
+])
 
 with tab1:
     make_heatmap(
         filtered_score,
         value_col="onkron_share_pct",
-        title="ONKRON Share",
+        title="Доля ONKRON",
         text_func=pct_fmt,
         color_scale="YlGn",
     )
@@ -813,7 +841,7 @@ with tab2:
     make_heatmap(
         filtered_score,
         value_col="score",
-        title="Score",
+        title="Итоговый score",
         text_func=num_fmt,
         color_scale="YlGn",
     )
@@ -822,14 +850,20 @@ with tab3:
     make_heatmap(
         filtered_score,
         value_col="revenue",
-        title="Revenue",
+        title="Выручка рынка",
         text_func=lambda x: money_fmt(x, CUR),
         color_scale="YlOrBr",
     )
 
 
 # =========================================================
-# SCORING SETTINGS
+# BRAND REVENUE AND MARKET SHARE CHART
+# =========================================================
+show_brand_chart(filtered, CUR)
+
+
+# =========================================================
+# SCORING SETTINGS — BOTTOM OF PAGE
 # =========================================================
 st.subheader("Параметры автоматического скоринга")
 
@@ -838,50 +872,50 @@ settings = pd.DataFrame(
         [
             "Вес емкости сегмента",
             "35%",
-            "Revenue Norm",
+            "Индекс выручки",
             "Чем выше выручка сегмента, тем выше приоритет",
         ],
         [
-            "Вес выручки на игрока",
+            "Вес выручки на ASIN",
             "25%",
-            "Rev/Player Norm",
-            "Показывает денежность сегмента на одного игрока/модель",
+            "Индекс выручки на ASIN",
+            "Показывает денежность сегмента на одну модель / ASIN",
         ],
         [
             "Вес низкой конкуренции",
             "20%",
-            "Low Competition Norm",
-            "Больше балл, если игроков меньше",
+            "Индекс низкой конкуренции",
+            "Чем меньше игроков в сегменте, тем выше балл",
         ],
         [
-            "Вес разрыва по доле WE",
+            "Вес разрыва по доле ONKRON",
             "20%",
-            "Opportunity Gap",
-            "Больше балл, если наша доля низкая или нулевая",
+            "Разрыв по доле ONKRON",
+            "Чем ниже текущая доля ONKRON, тем выше потенциал роста",
         ],
         [
-            "Порог HIGH",
+            "Порог высокого приоритета",
             THRESHOLD_HIGH,
             "Score",
-            "Приоритет HIGH, если Score >= порога",
+            "Сегмент получает высокий приоритет, если Score не ниже этого значения",
         ],
         [
-            "Порог MEDIUM",
+            "Порог среднего приоритета",
             THRESHOLD_MEDIUM,
             "Score",
-            "Приоритет MEDIUM, если Score >= порога",
+            "Сегмент получает средний приоритет, если Score не ниже этого значения",
         ],
         [
             "Порог минимальной выручки для Pipeline",
             money_fmt(PIPELINE_MIN_REVENUE, CUR),
-            "Revenue",
-            "Фильтр для потенциального pipeline",
+            "Выручка рынка",
+            "Минимальный размер сегмента для попадания в потенциальные возможности",
         ],
         [
-            "Порог максимальной доли WE для Pipeline",
+            "Порог максимальной доли ONKRON для Pipeline",
             f"{PIPELINE_MAX_ONKRON_SHARE:.2f}%",
-            "WE Share",
-            "Сегмент считается потенциальным, если WE Share <= порога",
+            "ONKRON Share",
+            "Сегмент считается потенциальной возможностью, если доля ONKRON не выше порога",
         ],
     ],
     columns=["Параметр", "Значение", "Используется в", "Комментарий"],
@@ -892,9 +926,3 @@ st.dataframe(
     use_container_width=True,
     hide_index=True,
 )
-
-
-# =========================================================
-# BRAND REVENUE AND MARKET SHARE CHART AT THE BOTTOM
-# =========================================================
-show_brand_chart(filtered, CUR)

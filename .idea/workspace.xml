@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="delete pivot" />
+    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="delete high pipeline" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -208,7 +208,15 @@
       <option name="project" value="LOCAL" />
       <updated>1780561572018</updated>
     </task>
-    <option name="localTasksCounter" value="20" />
+    <task id="LOCAL-00020" summary="delete high pipeline">
+      <option name="closed" value="true" />
+      <created>1780579961222</created>
+      <option name="number" value="00020" />
+      <option name="presentableId" value="LOCAL-00020" />
+      <option name="project" value="LOCAL" />
+      <updated>1780579961222</updated>
+    </task>
+    <option name="localTasksCounter" value="21" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -229,6 +237,7 @@
     <MESSAGE value="Graphs" />
     <MESSAGE value="category" />
     <MESSAGE value="delete pivot" />
-    <option name="LAST_COMMIT_MESSAGE" value="delete pivot" />
+    <MESSAGE value="delete high pipeline" />
+    <option name="LAST_COMMIT_MESSAGE" value="delete high pipeline" />
   </component>
 </project>
