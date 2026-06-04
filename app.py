@@ -508,110 +508,96 @@ def make_heatmap(data, value_col, title, text_func, color_scale="YlGn"):
 # BRAND CHART HELPER
 # =========================================================
 def show_brand_chart(filtered, cur):
-    st.subheader("Бренды: выручка и доля рынка")
+    st.subheader("Доля рынка ONKRON")
 
     brand_df = (
         filtered.groupby("brand", dropna=False)
         .agg(
-            revenue=("revenue", "sum"),
-            sales=("sales", "sum"),
-            asin_count=("asin", "nunique"),
+            revenue=("revenue", "sum")
         )
         .reset_index()
     )
 
-    brand_df["brand"] = brand_df["brand"].fillna("Без бренда").astype(str)
-    brand_df = brand_df[brand_df["revenue"] > 0].copy()
-
-    if brand_df.empty:
-        st.info("Нет данных по брендам.")
-        return
-
-    total_revenue = brand_df["revenue"].sum()
-    brand_df["market_share_pct"] = brand_df["revenue"] / total_revenue * 100
-
-    brand_df = brand_df.sort_values("revenue", ascending=True)
-
-    chart_height = max(650, len(brand_df) * 34)
-
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-
-    fig.add_trace(
-        go.Bar(
-            y=brand_df["brand"],
-            x=brand_df["revenue"],
-            orientation="h",
-            name="Выручка",
-            text=brand_df["revenue"],
-            texttemplate=(
-                "%{text:,.2f} RUB"
-                if cur == "RUB"
-                else f"{cur} %{{text:,.2f}}"
-            ),
-            textposition="outside",
-            hovertemplate=(
-                "<b>%{y}</b><br>"
-                + (
-                    "Выручка: %{x:,.2f} RUB"
-                    if cur == "RUB"
-                    else f"Выручка: {cur} %{{x:,.2f}}"
-                )
-                + "<extra></extra>"
-            ),
-        ),
-        secondary_y=False,
+    brand_df["brand"] = (
+        brand_df["brand"]
+        .fillna("Без бренда")
+        .astype(str)
+        .str.strip()
     )
 
-    fig.add_trace(
-        go.Scatter(
-            y=brand_df["brand"],
-            x=brand_df["market_share_pct"],
-            name="Доля рынка",
-            mode="markers+text",
-            text=brand_df["market_share_pct"],
-            texttemplate="%{text:.2f}%",
-            textposition="middle right",
-            hovertemplate="<b>%{y}</b><br>Доля рынка: %{x:.2f}%<extra></extra>",
-        ),
-        secondary_y=True,
+    onkron_mask = (
+        brand_df["brand"]
+        .str.upper()
+        .str.contains("ONKRON", na=False)
+    )
+
+    onkron_revenue = brand_df.loc[
+        onkron_mask,
+        "revenue"
+    ].sum()
+
+    market_revenue = brand_df["revenue"].sum()
+
+    others_revenue = market_revenue - onkron_revenue
+
+    pie_df = pd.DataFrame(
+        {
+            "segment": [
+                "ONKRON",
+                "Остальной рынок"
+            ],
+            "revenue": [
+                onkron_revenue,
+                others_revenue
+            ]
+        }
+    )
+
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=pie_df["segment"],
+                values=pie_df["revenue"],
+                hole=0.55,
+                pull=[0.08, 0],
+                marker=dict(
+                    colors=[
+                        "#00C2C7",  # бирюзовый ONKRON
+                        "#D9D9D9"   # серый рынок
+                    ]
+                ),
+                textinfo="label+percent",
+                hovertemplate=
+                "<b>%{label}</b><br>"
+                "Выручка: %{value:,.0f}<br>"
+                "Доля: %{percent}"
+                "<extra></extra>"
+            )
+        ]
     )
 
     fig.update_layout(
-        height=chart_height,
-        margin=dict(l=10, r=160, t=40, b=40),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-        ),
-        yaxis=dict(
-            title="Бренд",
-            automargin=True,
-        ),
+        height=600,
+        margin=dict(l=10, r=10, t=40, b=10),
+        showlegend=True,
+        annotations=[
+            dict(
+                text=f"{onkron_revenue / market_revenue * 100:.1f}%<br>ONKRON",
+                showarrow=False,
+                font=dict(size=24)
+            )
+        ]
     )
 
-    fig.update_xaxes(
-        title_text=f"Выручка, {cur}",
-        fixedrange=False,
+    st.plotly_chart(
+        fig,
+        use_container_width=True
     )
 
-    fig.update_yaxes(
-        title_text="Бренд",
-        automargin=True,
-        secondary_y=False,
+    st.metric(
+        "Доля рынка ONKRON",
+        f"{onkron_revenue / market_revenue * 100:.2f}%"
     )
-
-    fig.update_yaxes(
-        title_text="Доля рынка, %",
-        secondary_y=True,
-    )
-
-    with st.container(height=720):
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.caption("Бренды отсортированы по выручке. Прокрутка вниз доступна внутри блока графика.")
 
 
 # =========================================================
