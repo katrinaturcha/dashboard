@@ -508,13 +508,11 @@ def make_heatmap(data, value_col, title, text_func, color_scale="YlGn"):
 # BRAND CHART HELPER
 # =========================================================
 def show_brand_chart(filtered, cur):
-    st.subheader("Доля рынка ONKRON")
+    st.subheader("Бренды: выручка и доля рынка")
 
     brand_df = (
         filtered.groupby("brand", dropna=False)
-        .agg(
-            revenue=("revenue", "sum")
-        )
+        .agg(revenue=("revenue", "sum"))
         .reset_index()
     )
 
@@ -525,78 +523,86 @@ def show_brand_chart(filtered, cur):
         .str.strip()
     )
 
-    onkron_mask = (
-        brand_df["brand"]
-        .str.upper()
-        .str.contains("ONKRON", na=False)
+    brand_df = brand_df[brand_df["revenue"] > 0].copy()
+
+    if brand_df.empty:
+        st.info("Нет данных по брендам.")
+        return
+
+    brand_df = brand_df.sort_values("revenue", ascending=False)
+
+    total_revenue = brand_df["revenue"].sum()
+    brand_df["market_share_pct"] = brand_df["revenue"] / total_revenue * 100
+
+    brand_df["label_for_chart"] = np.where(
+        brand_df["market_share_pct"] >= 3,
+        brand_df["brand"],
+        ""
     )
 
-    onkron_revenue = brand_df.loc[
-        onkron_mask,
-        "revenue"
-    ].sum()
+    brand_df["pull"] = np.where(
+        brand_df["brand"].str.upper().str.contains("ONKRON", na=False),
+        0.08,
+        0
+    )
 
-    market_revenue = brand_df["revenue"].sum()
-
-    others_revenue = market_revenue - onkron_revenue
-
-    pie_df = pd.DataFrame(
-        {
-            "segment": [
-                "ONKRON",
-                "Остальной рынок"
-            ],
-            "revenue": [
-                onkron_revenue,
-                others_revenue
-            ]
-        }
+    brand_df["color"] = np.where(
+        brand_df["brand"].str.upper().str.contains("ONKRON", na=False),
+        "#00C2C7",
+        "#D9D9D9"
     )
 
     fig = go.Figure(
         data=[
             go.Pie(
-                labels=pie_df["segment"],
-                values=pie_df["revenue"],
-                hole=0.55,
-                pull=[0.08, 0],
+                labels=brand_df["brand"],
+                values=brand_df["revenue"],
+                hole=0.45,
+                pull=brand_df["pull"],
                 marker=dict(
-                    colors=[
-                        "#00C2C7",  # бирюзовый ONKRON
-                        "#D9D9D9"   # серый рынок
-                    ]
+                    colors=brand_df["color"],
+                    line=dict(color="white", width=1)
                 ),
-                textinfo="label+percent",
-                hovertemplate=
-                "<b>%{label}</b><br>"
-                "Выручка: %{value:,.0f}<br>"
-                "Доля: %{percent}"
-                "<extra></extra>"
+                text=brand_df["label_for_chart"],
+                textinfo="text+percent",
+                textposition="inside",
+                insidetextorientation="radial",
+                hovertemplate=(
+                    "<b>%{label}</b><br>"
+                    + (
+                        "Выручка: %{value:,.2f} RUB<br>"
+                        if cur == "RUB"
+                        else f"Выручка: {cur} %{{value:,.2f}}<br>"
+                    )
+                    + "Доля рынка: %{percent}"
+                    + "<extra></extra>"
+                ),
             )
         ]
+    )
+
+    fig.update_traces(
+        sort=False,
+        showlegend=True
     )
 
     fig.update_layout(
-        height=600,
+        height=700,
         margin=dict(l=10, r=10, t=40, b=10),
-        showlegend=True,
-        annotations=[
-            dict(
-                text=f"{onkron_revenue / market_revenue * 100:.1f}%<br>ONKRON",
-                showarrow=False,
-                font=dict(size=24)
-            )
-        ]
+        legend=dict(
+            orientation="v",
+            yanchor="middle",
+            y=0.5,
+            xanchor="left",
+            x=1.02,
+            font=dict(size=11),
+        ),
     )
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
+    st.plotly_chart(fig, use_container_width=True)
 
-    st.metric(
-        "Доля рынка ONKRON",
-        f"{onkron_revenue / market_revenue * 100:.2f}%"
+    st.caption(
+        "Все бренды отображены на диаграмме. Подписи скрываются у маленьких долей, но доступны при наведении мыши."
     )
 
 
