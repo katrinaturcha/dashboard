@@ -4,9 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="pie chart2">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-    </list>
+    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="dynamic_bar" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -250,7 +248,23 @@
       <option name="project" value="LOCAL" />
       <updated>1780581633479</updated>
     </task>
-    <option name="localTasksCounter" value="25" />
+    <task id="LOCAL-00025" summary="dynamic">
+      <option name="closed" value="true" />
+      <created>1780642076644</created>
+      <option name="number" value="00025" />
+      <option name="presentableId" value="LOCAL-00025" />
+      <option name="project" value="LOCAL" />
+      <updated>1780642076644</updated>
+    </task>
+    <task id="LOCAL-00026" summary="dynamic_bar">
+      <option name="closed" value="true" />
+      <created>1780642359148</created>
+      <option name="number" value="00026" />
+      <option name="presentableId" value="LOCAL-00026" />
+      <option name="project" value="LOCAL" />
+      <updated>1780642359148</updated>
+    </task>
+    <option name="localTasksCounter" value="27" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -276,6 +290,8 @@
     <MESSAGE value="brand" />
     <MESSAGE value="pie chart" />
     <MESSAGE value="pie chart2" />
-    <option name="LAST_COMMIT_MESSAGE" value="pie chart2" />
+    <MESSAGE value="dynamic" />
+    <MESSAGE value="dynamic_bar" />
+    <option name="LAST_COMMIT_MESSAGE" value="dynamic_bar" />
   </component>
 </project>

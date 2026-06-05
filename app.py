@@ -367,55 +367,55 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
 
     dynamics["month"] = dynamics["data_date_begin"].dt.to_period("M").dt.to_timestamp()
 
-    monthly = (
-        dynamics.groupby(["month", "onkron_competitor"], dropna=False)
-        .agg(revenue=("revenue", "sum"))
+    monthly_total = (
+        dynamics.groupby("month", dropna=False)
+        .agg(market_revenue=("revenue", "sum"))
         .reset_index()
     )
 
-    pivot = monthly.pivot_table(
-        index="month",
-        columns="onkron_competitor",
-        values="revenue",
-        aggfunc="sum",
-        fill_value=0,
-    ).reset_index()
-
-    if "onkron" not in pivot.columns:
-        pivot["onkron"] = 0
-
-    if "competitor" not in pivot.columns:
-        pivot["competitor"] = 0
-
-    pivot["market_total"] = pivot["onkron"] + pivot["competitor"]
-    pivot["onkron_share_pct"] = np.where(
-        pivot["market_total"] > 0,
-        pivot["onkron"] / pivot["market_total"] * 100,
-        0,
+    monthly_onkron = (
+        dynamics[dynamics["onkron_competitor"] == "onkron"]
+        .groupby("month", dropna=False)
+        .agg(onkron_revenue=("revenue", "sum"))
+        .reset_index()
     )
 
-    pivot["month_label"] = pivot["month"].dt.strftime("%m.%Y")
+    monthly = monthly_total.merge(
+        monthly_onkron,
+        on="month",
+        how="left"
+    )
+
+    monthly["onkron_revenue"] = monthly["onkron_revenue"].fillna(0)
+
+    monthly["onkron_share_pct"] = np.where(
+        monthly["market_revenue"] > 0,
+        monthly["onkron_revenue"] / monthly["market_revenue"] * 100,
+        0
+    )
+
+    monthly = monthly.sort_values("month")
+    monthly["month_label"] = monthly["month"].dt.strftime("%m.%Y")
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
+    # общий рынок — тонкий черный столбец
     fig.add_trace(
         go.Bar(
-            x=pivot["month_label"],
-            y=pivot["competitor"],
-            name="Конкуренты",
-            text=pivot["competitor"],
-            texttemplate=(
-                "%{text:,.0f} RUB"
-                if cur == "RUB"
-                else f"{cur} %{{text:,.0f}}"
+            x=monthly["month_label"],
+            y=monthly["market_revenue"],
+            name="Объем рынка",
+            width=0.22,
+            marker=dict(
+                color="#1F1F1F"
             ),
-            textposition="inside",
+            opacity=0.85,
             hovertemplate=(
                 "<b>%{x}</b><br>"
                 + (
-                    "Конкуренты: %{y:,.2f} RUB"
+                    "Объем рынка: %{y:,.2f} RUB"
                     if cur == "RUB"
-                    else f"Конкуренты: {cur} %{{y:,.2f}}"
+                    else f"Объем рынка: {cur} %{{y:,.2f}}"
                 )
                 + "<extra></extra>"
             ),
@@ -423,24 +423,23 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
         secondary_y=False,
     )
 
+    # ONKRON — тонкий бирюзовый столбец
     fig.add_trace(
         go.Bar(
-            x=pivot["month_label"],
-            y=pivot["onkron"],
-            name="ONKRON",
-            text=pivot["onkron"],
-            texttemplate=(
-                "%{text:,.0f} RUB"
-                if cur == "RUB"
-                else f"{cur} %{{text:,.0f}}"
+            x=monthly["month_label"],
+            y=monthly["onkron_revenue"],
+            name="Объем ONKRON",
+            width=0.10,
+            marker=dict(
+                color="#00C2C7"
             ),
-            textposition="outside",
+            opacity=0.95,
             hovertemplate=(
                 "<b>%{x}</b><br>"
                 + (
-                    "ONKRON: %{y:,.2f} RUB"
+                    "Объем ONKRON: %{y:,.2f} RUB"
                     if cur == "RUB"
-                    else f"ONKRON: {cur} %{{y:,.2f}}"
+                    else f"Объем ONKRON: {cur} %{{y:,.2f}}"
                 )
                 + "<extra></extra>"
             ),
@@ -448,13 +447,22 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
         secondary_y=False,
     )
 
+    # линия доли ONKRON
     fig.add_trace(
         go.Scatter(
-            x=pivot["month_label"],
-            y=pivot["onkron_share_pct"],
+            x=monthly["month_label"],
+            y=monthly["onkron_share_pct"],
             name="Доля ONKRON",
             mode="lines+markers+text",
-            text=pivot["onkron_share_pct"],
+            line=dict(
+                color="#00C2C7",
+                width=2
+            ),
+            marker=dict(
+                size=7,
+                color="#00C2C7"
+            ),
+            text=monthly["onkron_share_pct"],
             texttemplate="%{text:.2f}%",
             textposition="top center",
             hovertemplate=(
@@ -467,35 +475,48 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
     )
 
     fig.update_layout(
-        barmode="stack",
-        height=560,
-        margin=dict(l=10, r=10, t=40, b=40),
+        barmode="overlay",
+        height=500,
+        bargap=0.65,
+        margin=dict(l=10, r=10, t=35, b=40),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.02,
+            y=1.03,
             xanchor="right",
             x=1,
         ),
         xaxis=dict(
-            title="Месяц",
+            title="",
             type="category",
+            showgrid=False,
+            zeroline=False,
             fixedrange=False,
         ),
+        hovermode="x unified",
     )
 
     fig.update_yaxes(
         title_text=f"Выручка, {cur}",
         secondary_y=False,
-        fixedrange=False,
+        showgrid=True,
+        gridcolor="#EAEAEA",
+        zeroline=False,
         rangemode="tozero",
+        fixedrange=False,
     )
+
+    max_share = monthly["onkron_share_pct"].max()
 
     fig.update_yaxes(
         title_text="Доля ONKRON, %",
         secondary_y=True,
+        showgrid=False,
+        zeroline=False,
         ticksuffix="%",
-        range=[0, max(10, pivot["onkron_share_pct"].max() * 1.3)],
+        range=[0, max(5, max_share * 1.4)],
         fixedrange=False,
     )
 
