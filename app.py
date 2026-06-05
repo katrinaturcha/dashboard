@@ -395,20 +395,36 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
     )
 
     monthly = monthly.sort_values("month")
-    monthly["month_label"] = monthly["month"].dt.strftime("%m.%Y")
+
+    month_ru = {
+        1: "январь",
+        2: "февраль",
+        3: "март",
+        4: "апрель",
+        5: "май",
+        6: "июнь",
+        7: "июль",
+        8: "август",
+        9: "сентябрь",
+        10: "октябрь",
+        11: "ноябрь",
+        12: "декабрь",
+    }
+
+    monthly["month_label"] = monthly["month"].apply(
+        lambda x: f"{month_ru[x.month]} {x.year}"
+    )
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-    # общий рынок — тонкий черный столбец
+    # Общий объем рынка — черный столбец
     fig.add_trace(
         go.Bar(
             x=monthly["month_label"],
             y=monthly["market_revenue"],
             name="Объем рынка",
             width=0.22,
-            marker=dict(
-                color="#1F1F1F"
-            ),
+            marker_color="#1F1F1F",
             opacity=0.85,
             hovertemplate=(
                 "<b>%{x}</b><br>"
@@ -423,17 +439,15 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
         secondary_y=False,
     )
 
-    # ONKRON — тонкий бирюзовый столбец
+    # Объем ONKRON — бирюзовая заливка нижней части столбца
     fig.add_trace(
         go.Bar(
             x=monthly["month_label"],
             y=monthly["onkron_revenue"],
             name="Объем ONKRON",
-            width=0.10,
-            marker=dict(
-                color="#00C2C7"
-            ),
-            opacity=0.95,
+            width=0.22,
+            marker_color="#00C2C7",
+            opacity=1,
             hovertemplate=(
                 "<b>%{x}</b><br>"
                 + (
@@ -447,7 +461,7 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
         secondary_y=False,
     )
 
-    # линия доли ONKRON
+    # Доля ONKRON — линия по второй оси
     fig.add_trace(
         go.Scatter(
             x=monthly["month_label"],
@@ -474,6 +488,8 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
         secondary_y=True,
     )
 
+    max_share = monthly["onkron_share_pct"].max()
+
     fig.update_layout(
         barmode="overlay",
         height=500,
@@ -481,6 +497,7 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
         margin=dict(l=10, r=10, t=35, b=40),
         plot_bgcolor="white",
         paper_bgcolor="white",
+        hovermode="x unified",
         legend=dict(
             orientation="h",
             yanchor="bottom",
@@ -495,7 +512,6 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
             zeroline=False,
             fixedrange=False,
         ),
-        hovermode="x unified",
     )
 
     fig.update_yaxes(
@@ -507,8 +523,6 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
         rangemode="tozero",
         fixedrange=False,
     )
-
-    max_share = monthly["onkron_share_pct"].max()
 
     fig.update_yaxes(
         title_text="Доля ONKRON, %",
