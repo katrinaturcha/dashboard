@@ -368,74 +368,107 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
     dynamics["month"] = dynamics["data_date_begin"].dt.to_period("M").dt.to_timestamp()
 
     monthly = (
-        dynamics.groupby("month", dropna=False)
-        .agg(
-            market_revenue=("revenue", "sum"),
-            onkron_revenue=(
-                "revenue",
-                lambda x: x[dynamics.loc[x.index, "onkron_competitor"] == "onkron"].sum()
-            ),
-        )
+        dynamics.groupby(["month", "onkron_competitor"], dropna=False)
+        .agg(revenue=("revenue", "sum"))
         .reset_index()
-        .sort_values("month")
     )
 
-    monthly["month_label"] = monthly["month"].dt.strftime("%m.%Y")
+    pivot = monthly.pivot_table(
+        index="month",
+        columns="onkron_competitor",
+        values="revenue",
+        aggfunc="sum",
+        fill_value=0,
+    ).reset_index()
 
-    fig = go.Figure()
+    if "onkron" not in pivot.columns:
+        pivot["onkron"] = 0
+
+    if "competitor" not in pivot.columns:
+        pivot["competitor"] = 0
+
+    pivot["market_total"] = pivot["onkron"] + pivot["competitor"]
+    pivot["onkron_share_pct"] = np.where(
+        pivot["market_total"] > 0,
+        pivot["onkron"] / pivot["market_total"] * 100,
+        0,
+    )
+
+    pivot["month_label"] = pivot["month"].dt.strftime("%m.%Y")
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
 
     fig.add_trace(
-        go.Scatter(
-            x=monthly["month_label"],
-            y=monthly["market_revenue"],
-            mode="lines+markers+text",
-            name="Объем рынка",
-            text=monthly["market_revenue"],
+        go.Bar(
+            x=pivot["month_label"],
+            y=pivot["competitor"],
+            name="Конкуренты",
+            text=pivot["competitor"],
             texttemplate=(
                 "%{text:,.0f} RUB"
                 if cur == "RUB"
                 else f"{cur} %{{text:,.0f}}"
             ),
+            textposition="inside",
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                + (
+                    "Конкуренты: %{y:,.2f} RUB"
+                    if cur == "RUB"
+                    else f"Конкуренты: {cur} %{{y:,.2f}}"
+                )
+                + "<extra></extra>"
+            ),
+        ),
+        secondary_y=False,
+    )
+
+    fig.add_trace(
+        go.Bar(
+            x=pivot["month_label"],
+            y=pivot["onkron"],
+            name="ONKRON",
+            text=pivot["onkron"],
+            texttemplate=(
+                "%{text:,.0f} RUB"
+                if cur == "RUB"
+                else f"{cur} %{{text:,.0f}}"
+            ),
+            textposition="outside",
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                + (
+                    "ONKRON: %{y:,.2f} RUB"
+                    if cur == "RUB"
+                    else f"ONKRON: {cur} %{{y:,.2f}}"
+                )
+                + "<extra></extra>"
+            ),
+        ),
+        secondary_y=False,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=pivot["month_label"],
+            y=pivot["onkron_share_pct"],
+            name="Доля ONKRON",
+            mode="lines+markers+text",
+            text=pivot["onkron_share_pct"],
+            texttemplate="%{text:.2f}%",
             textposition="top center",
             hovertemplate=(
                 "<b>%{x}</b><br>"
-                + (
-                    "Объем рынка: %{y:,.2f} RUB"
-                    if cur == "RUB"
-                    else f"Объем рынка: {cur} %{{y:,.2f}}"
-                )
-                + "<extra></extra>"
+                "Доля ONKRON: %{y:.2f}%"
+                "<extra></extra>"
             ),
-        )
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=monthly["month_label"],
-            y=monthly["onkron_revenue"],
-            mode="lines+markers+text",
-            name="Объем ONKRON",
-            text=monthly["onkron_revenue"],
-            texttemplate=(
-                "%{text:,.0f} RUB"
-                if cur == "RUB"
-                else f"{cur} %{{text:,.0f}}"
-            ),
-            textposition="bottom center",
-            hovertemplate=(
-                "<b>%{x}</b><br>"
-                + (
-                    "Объем ONKRON: %{y:,.2f} RUB"
-                    if cur == "RUB"
-                    else f"Объем ONKRON: {cur} %{{y:,.2f}}"
-                )
-                + "<extra></extra>"
-            ),
-        )
+        ),
+        secondary_y=True,
     )
 
     fig.update_layout(
-        height=520,
+        barmode="stack",
+        height=560,
         margin=dict(l=10, r=10, t=40, b=40),
         legend=dict(
             orientation="h",
@@ -446,12 +479,24 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
         ),
         xaxis=dict(
             title="Месяц",
+            type="category",
             fixedrange=False,
         ),
-        yaxis=dict(
-            title=f"Выручка, {cur}",
-            fixedrange=False,
-        ),
+    )
+
+    fig.update_yaxes(
+        title_text=f"Выручка, {cur}",
+        secondary_y=False,
+        fixedrange=False,
+        rangemode="tozero",
+    )
+
+    fig.update_yaxes(
+        title_text="Доля ONKRON, %",
+        secondary_y=True,
+        ticksuffix="%",
+        range=[0, max(10, pivot["onkron_share_pct"].max() * 1.3)],
+        fixedrange=False,
     )
 
     st.plotly_chart(fig, use_container_width=True)
