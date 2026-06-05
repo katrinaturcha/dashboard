@@ -353,6 +353,109 @@ def priority_style(value):
         return "background-color: #ffc7ce; color: #9c0006; font-weight: 700;"
     return ""
 
+def show_market_dynamics(df, selected_market, selected_category, cur):
+    st.subheader("Динамика рынка")
+
+    dynamics = df[df["market"] == selected_market].copy()
+
+    if selected_category != "Все категории":
+        dynamics = dynamics[dynamics["onkron_category"] == selected_category].copy()
+
+    if dynamics.empty:
+        st.info("Нет данных для динамики рынка.")
+        return
+
+    dynamics["month"] = dynamics["data_date_begin"].dt.to_period("M").dt.to_timestamp()
+
+    monthly = (
+        dynamics.groupby("month", dropna=False)
+        .agg(
+            market_revenue=("revenue", "sum"),
+            onkron_revenue=(
+                "revenue",
+                lambda x: x[dynamics.loc[x.index, "onkron_competitor"] == "onkron"].sum()
+            ),
+        )
+        .reset_index()
+        .sort_values("month")
+    )
+
+    monthly["month_label"] = monthly["month"].dt.strftime("%m.%Y")
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scatter(
+            x=monthly["month_label"],
+            y=monthly["market_revenue"],
+            mode="lines+markers+text",
+            name="Объем рынка",
+            text=monthly["market_revenue"],
+            texttemplate=(
+                "%{text:,.0f} RUB"
+                if cur == "RUB"
+                else f"{cur} %{{text:,.0f}}"
+            ),
+            textposition="top center",
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                + (
+                    "Объем рынка: %{y:,.2f} RUB"
+                    if cur == "RUB"
+                    else f"Объем рынка: {cur} %{{y:,.2f}}"
+                )
+                + "<extra></extra>"
+            ),
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=monthly["month_label"],
+            y=monthly["onkron_revenue"],
+            mode="lines+markers+text",
+            name="Объем ONKRON",
+            text=monthly["onkron_revenue"],
+            texttemplate=(
+                "%{text:,.0f} RUB"
+                if cur == "RUB"
+                else f"{cur} %{{text:,.0f}}"
+            ),
+            textposition="bottom center",
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                + (
+                    "Объем ONKRON: %{y:,.2f} RUB"
+                    if cur == "RUB"
+                    else f"Объем ONKRON: {cur} %{{y:,.2f}}"
+                )
+                + "<extra></extra>"
+            ),
+        )
+    )
+
+    fig.update_layout(
+        height=520,
+        margin=dict(l=10, r=10, t=40, b=40),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+        ),
+        xaxis=dict(
+            title="Месяц",
+            fixedrange=False,
+        ),
+        yaxis=dict(
+            title=f"Выручка, {cur}",
+            fixedrange=False,
+        ),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
 
 def show_scoring_table(filtered_score, cur):
     st.subheader("Основная таблица скоринга")
@@ -750,6 +853,11 @@ kpi4.metric(
     pct_fmt(onkron_share),
     delta=f"{onkron_share_mom_pct:.2f}% MoM",
 )
+
+# =========================================================
+# MARKET DYNAMICS
+# =========================================================
+show_market_dynamics(df, selected_market, selected_category, CUR)
 
 
 # =========================================================

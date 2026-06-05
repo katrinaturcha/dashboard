@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="graph">
+    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="pie chart2">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -226,7 +226,31 @@
       <option name="project" value="LOCAL" />
       <updated>1780580838226</updated>
     </task>
-    <option name="localTasksCounter" value="22" />
+    <task id="LOCAL-00022" summary="brand">
+      <option name="closed" value="true" />
+      <created>1780581360829</created>
+      <option name="number" value="00022" />
+      <option name="presentableId" value="LOCAL-00022" />
+      <option name="project" value="LOCAL" />
+      <updated>1780581360829</updated>
+    </task>
+    <task id="LOCAL-00023" summary="pie chart">
+      <option name="closed" value="true" />
+      <created>1780581498273</created>
+      <option name="number" value="00023" />
+      <option name="presentableId" value="LOCAL-00023" />
+      <option name="project" value="LOCAL" />
+      <updated>1780581498273</updated>
+    </task>
+    <task id="LOCAL-00024" summary="pie chart2">
+      <option name="closed" value="true" />
+      <created>1780581633479</created>
+      <option name="number" value="00024" />
+      <option name="presentableId" value="LOCAL-00024" />
+      <option name="project" value="LOCAL" />
+      <updated>1780581633479</updated>
+    </task>
+    <option name="localTasksCounter" value="25" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -249,6 +273,9 @@
     <MESSAGE value="delete pivot" />
     <MESSAGE value="delete high pipeline" />
     <MESSAGE value="graph" />
-    <option name="LAST_COMMIT_MESSAGE" value="graph" />
+    <MESSAGE value="brand" />
+    <MESSAGE value="pie chart" />
+    <MESSAGE value="pie chart2" />
+    <option name="LAST_COMMIT_MESSAGE" value="pie chart2" />
   </component>
 </project>
