@@ -4,9 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="dynamic_bar_share">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-    </list>
+    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="bar_improve" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -274,11 +272,18 @@
       <option name="project" value="LOCAL" />
       <updated>1780643347928</updated>
     </task>
-    <option name="localTasksCounter" value="28" />
+    <task id="LOCAL-00028" summary="bar_improve">
+      <option name="closed" value="true" />
+      <created>1780643889619</created>
+      <option name="number" value="00028" />
+      <option name="presentableId" value="LOCAL-00028" />
+      <option name="project" value="LOCAL" />
+      <updated>1780643889619</updated>
+    </task>
+    <option name="localTasksCounter" value="29" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="start" />
     <MESSAGE value="start_sec" />
     <MESSAGE value="req" />
     <MESSAGE value="stream" />
@@ -303,6 +308,7 @@
     <MESSAGE value="dynamic" />
     <MESSAGE value="dynamic_bar" />
     <MESSAGE value="dynamic_bar_share" />
-    <option name="LAST_COMMIT_MESSAGE" value="dynamic_bar_share" />
+    <MESSAGE value="bar_improve" />
+    <option name="LAST_COMMIT_MESSAGE" value="bar_improve" />
   </component>
 </project>
