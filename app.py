@@ -360,7 +360,24 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
             width=0.22,
             marker_color="#1F1F1F",
             opacity=0.85,
-            hovertemplate="<b>%{x}</b><br>Объем рынка: %{y:,.2f}<extra></extra>",
+
+            text=monthly["market_revenue"],
+            texttemplate=(
+                "%{text:,.0f} RUB"
+                if cur == "RUB"
+                else f"{cur} %{{text:,.0f}}"
+            ),
+            textposition="outside",
+
+            hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    + (
+                        "Объем рынка: %{y:,.2f} RUB"
+                        if cur == "RUB"
+                        else f"Объем рынка: {cur} %{{y:,.2f}}"
+                    )
+                    + "<extra></extra>"
+            ),
         ),
         secondary_y=False,
     )
@@ -373,7 +390,24 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
             width=0.22,
             marker_color="#00C2C7",
             opacity=1,
-            hovertemplate="<b>%{x}</b><br>Объем ONKRON: %{y:,.2f}<extra></extra>",
+
+            text=monthly["onkron_revenue"],
+            texttemplate=(
+                "%{text:,.0f} RUB"
+                if cur == "RUB"
+                else f"{cur} %{{text:,.0f}}"
+            ),
+            textposition="inside",
+
+            hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    + (
+                        "Объем ONKRON: %{y:,.2f} RUB"
+                        if cur == "RUB"
+                        else f"Объем ONKRON: {cur} %{{y:,.2f}}"
+                    )
+                    + "<extra></extra>"
+            ),
         ),
         secondary_y=False,
     )
