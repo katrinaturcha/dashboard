@@ -4,9 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="bar_improve_categor">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-    </list>
+    <list default="true" id="399d363d-7901-4286-ad80-55891d3cc274" name="Changes" comment="data_named" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -290,11 +288,26 @@
       <option name="project" value="LOCAL" />
       <updated>1780644906398</updated>
     </task>
-    <option name="localTasksCounter" value="30" />
+    <task id="LOCAL-00030" summary="data_named">
+      <option name="closed" value="true" />
+      <created>1780645380465</created>
+      <option name="number" value="00030" />
+      <option name="presentableId" value="LOCAL-00030" />
+      <option name="project" value="LOCAL" />
+      <updated>1780645380465</updated>
+    </task>
+    <task id="LOCAL-00031" summary="data_named">
+      <option name="closed" value="true" />
+      <created>1780645384974</created>
+      <option name="number" value="00031" />
+      <option name="presentableId" value="LOCAL-00031" />
+      <option name="project" value="LOCAL" />
+      <updated>1780645384974</updated>
+    </task>
+    <option name="localTasksCounter" value="32" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="req" />
     <MESSAGE value="stream" />
     <MESSAGE value="improve" />
     <MESSAGE value="req2" />
@@ -319,6 +332,7 @@
     <MESSAGE value="dynamic_bar_share" />
     <MESSAGE value="bar_improve" />
     <MESSAGE value="bar_improve_categor" />
-    <option name="LAST_COMMIT_MESSAGE" value="bar_improve_categor" />
+    <MESSAGE value="data_named" />
+    <option name="LAST_COMMIT_MESSAGE" value="data_named" />
   </component>
 </project>

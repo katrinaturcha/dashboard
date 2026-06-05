@@ -191,13 +191,14 @@ def load_data():
 # =========================================================
 # SCORE LOGIC
 # =========================================================
-def prepare_score(df):
-    keys = [
-        "market",
-        "type",
-        "diagonal_category",
-        "load_capacity_kg_category",
-    ]
+def prepare_score(df, keys=None):
+    if keys is None:
+        keys = [
+            "market",
+            "type",
+            "diagonal_category",
+            "load_capacity_kg_category",
+        ]
 
     if df.empty:
         return pd.DataFrame()
@@ -246,8 +247,12 @@ def prepare_score(df):
         score["revenue"] / score["players"].replace(0, np.nan)
     ).fillna(0)
 
-    score["onkron_share"] = score["onkron_revenue"] / (
-        score["revenue"] + score["onkron_revenue"] + 1
+    score["total_segment_revenue"] = score["revenue"] + score["onkron_revenue"]
+
+    score["onkron_share"] = np.where(
+        score["total_segment_revenue"] > 0,
+        score["onkron_revenue"] / score["total_segment_revenue"],
+        0,
     )
     score["onkron_share_pct"] = score["onkron_share"] * 100
 
@@ -360,7 +365,6 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
             width=0.22,
             marker_color="#1F1F1F",
             opacity=0.85,
-
             text=monthly["market_revenue"],
             texttemplate=(
                 "%{text:,.0f} RUB"
@@ -368,15 +372,14 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
                 else f"{cur} %{{text:,.0f}}"
             ),
             textposition="outside",
-
             hovertemplate=(
-                    "<b>%{x}</b><br>"
-                    + (
-                        "Объем рынка: %{y:,.2f} RUB"
-                        if cur == "RUB"
-                        else f"Объем рынка: {cur} %{{y:,.2f}}"
-                    )
-                    + "<extra></extra>"
+                "<b>%{x}</b><br>"
+                + (
+                    "Объем рынка: %{y:,.2f} RUB"
+                    if cur == "RUB"
+                    else f"Объем рынка: {cur} %{{y:,.2f}}"
+                )
+                + "<extra></extra>"
             ),
         ),
         secondary_y=False,
@@ -390,7 +393,6 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
             width=0.22,
             marker_color="#00C2C7",
             opacity=1,
-
             text=monthly["onkron_revenue"],
             texttemplate=(
                 "%{text:,.0f} RUB"
@@ -398,15 +400,14 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
                 else f"{cur} %{{text:,.0f}}"
             ),
             textposition="inside",
-
             hovertemplate=(
-                    "<b>%{x}</b><br>"
-                    + (
-                        "Объем ONKRON: %{y:,.2f} RUB"
-                        if cur == "RUB"
-                        else f"Объем ONKRON: {cur} %{{y:,.2f}}"
-                    )
-                    + "<extra></extra>"
+                "<b>%{x}</b><br>"
+                + (
+                    "Объем ONKRON: %{y:,.2f} RUB"
+                    if cur == "RUB"
+                    else f"Объем ONKRON: {cur} %{{y:,.2f}}"
+                )
+                + "<extra></extra>"
             ),
         ),
         secondary_y=False,
@@ -438,6 +439,8 @@ def show_market_dynamics(df, selected_market, selected_category, cur):
         plot_bgcolor="white",
         paper_bgcolor="white",
         hovermode="x unified",
+        uniformtext_minsize=10,
+        uniformtext_mode="hide",
         legend=dict(
             orientation="h",
             yanchor="bottom",
@@ -526,9 +529,9 @@ def show_scoring_table(filtered_score, cur):
         "Тип продукта",
         "Диагональ",
         "Нагрузка",
-        "Выручка рынка",
-        "Продажи, шт.",
-        "Количество ASIN",
+        "Выручка конкурентов",
+        "Продажи конкурентов, шт.",
+        "Количество ASIN конкурентов",
         "Средняя цена",
         "Выручка на ASIN",
         "Выручка ONKRON",
@@ -545,8 +548,8 @@ def show_scoring_table(filtered_score, cur):
         "Рекомендация",
     ]
 
-    money_cols = ["Выручка рынка", "Средняя цена", "Выручка на ASIN", "Выручка ONKRON"]
-    int_cols = ["Продажи, шт.", "Количество ASIN", "Продажи ONKRON, шт.", "Модели ONKRON"]
+    money_cols = ["Выручка конкурентов", "Средняя цена", "Выручка на ASIN", "Выручка ONKRON"]
+    int_cols = ["Продажи конкурентов, шт.", "Количество ASIN конкурентов", "Продажи ONKRON, шт.", "Модели ONKRON"]
     pct_cols = ["Доля ONKRON", "Разрыв по доле ONKRON"]
     num_cols = ["Индекс выручки", "Индекс выручки на ASIN", "Индекс низкой конкуренции", "Score"]
 
@@ -568,29 +571,31 @@ def show_scoring_table(filtered_score, cur):
 
 
 # =========================================================
-# HEATMAP
+# CORRECT HEATMAPS
 # =========================================================
-def make_heatmap(data, value_col, title, text_func, color_scale="YlGn"):
-    pivot = data.pivot_table(
+def make_revenue_heatmap(raw_df, cur):
+    st.subheader("Выручка рынка")
+
+    pivot = raw_df.pivot_table(
         index="type",
         columns="diagonal_category",
-        values=value_col,
-        aggfunc="sum" if value_col != "score" else "mean",
+        values="revenue",
+        aggfunc="sum",
         fill_value=0,
     )
 
     if pivot.empty:
-        st.info(f"Нет данных для: {title}")
+        st.info("Нет данных для матрицы выручки.")
         return
 
-    text_values = pivot.map(text_func)
+    text_values = pivot.map(lambda x: money_fmt(x, cur))
 
     fig = px.imshow(
         pivot,
         text_auto=False,
         aspect="auto",
-        color_continuous_scale=color_scale,
-        labels=dict(x="Диагональ", y="Тип продукта", color=title),
+        color_continuous_scale="YlOrBr",
+        labels=dict(x="Диагональ", y="Тип продукта", color="Выручка рынка"),
     )
 
     fig.update_traces(
@@ -600,7 +605,125 @@ def make_heatmap(data, value_col, title, text_func, color_scale="YlGn"):
     )
 
     fig.update_layout(
-        title=title,
+        height=max(520, len(pivot.index) * 32),
+        margin=dict(l=10, r=10, t=50, b=40),
+        xaxis=dict(side="top", automargin=True),
+        yaxis=dict(automargin=True),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def make_onkron_share_heatmap(raw_df):
+    st.subheader("Доля ONKRON")
+
+    grouped = (
+        raw_df.groupby(["type", "diagonal_category", "onkron_competitor"], dropna=False)
+        .agg(revenue=("revenue", "sum"))
+        .reset_index()
+    )
+
+    pivot_src = grouped.pivot_table(
+        index=["type", "diagonal_category"],
+        columns="onkron_competitor",
+        values="revenue",
+        aggfunc="sum",
+        fill_value=0,
+    ).reset_index()
+
+    if "onkron" not in pivot_src.columns:
+        pivot_src["onkron"] = 0
+
+    if "competitor" not in pivot_src.columns:
+        pivot_src["competitor"] = 0
+
+    pivot_src["total"] = pivot_src["onkron"] + pivot_src["competitor"]
+
+    pivot_src["onkron_share_pct"] = np.where(
+        pivot_src["total"] > 0,
+        pivot_src["onkron"] / pivot_src["total"] * 100,
+        0,
+    )
+
+    pivot = pivot_src.pivot_table(
+        index="type",
+        columns="diagonal_category",
+        values="onkron_share_pct",
+        aggfunc="first",
+        fill_value=0,
+    )
+
+    if pivot.empty:
+        st.info("Нет данных для матрицы доли ONKRON.")
+        return
+
+    text_values = pivot.map(pct_fmt)
+
+    fig = px.imshow(
+        pivot,
+        text_auto=False,
+        aspect="auto",
+        color_continuous_scale="YlGn",
+        labels=dict(x="Диагональ", y="Тип продукта", color="Доля ONKRON"),
+        zmin=0,
+        zmax=100,
+    )
+
+    fig.update_traces(
+        text=text_values.values,
+        texttemplate="%{text}",
+        hovertemplate="<b>%{y}</b><br>%{x}<br>%{text}<extra></extra>",
+    )
+
+    fig.update_layout(
+        height=max(520, len(pivot.index) * 32),
+        margin=dict(l=10, r=10, t=50, b=40),
+        xaxis=dict(side="top", automargin=True),
+        yaxis=dict(automargin=True),
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def make_score_heatmap(raw_df):
+    st.subheader("Итоговый score")
+
+    # ВАЖНО: score пересчитывается заново на уровне type × diagonal_category,
+    # а не усредняется и не суммируется из строк с разной нагрузкой.
+    score_df = prepare_score(
+        raw_df,
+        keys=["market", "type", "diagonal_category"]
+    )
+
+    if score_df.empty:
+        st.info("Нет данных для матрицы score.")
+        return
+
+    pivot = score_df.pivot_table(
+        index="type",
+        columns="diagonal_category",
+        values="score",
+        aggfunc="first",
+        fill_value=0,
+    )
+
+    text_values = pivot.map(num_fmt)
+
+    fig = px.imshow(
+        pivot,
+        text_auto=False,
+        aspect="auto",
+        color_continuous_scale="YlGn",
+        labels=dict(x="Диагональ", y="Тип продукта", color="Score"),
+    )
+
+    fig.update_traces(
+        text=text_values.values,
+        texttemplate="%{text}",
+        hovertemplate="<b>%{y}</b><br>%{x}<br>Score: %{text}<extra></extra>",
+    )
+
+    fig.update_layout(
         height=max(520, len(pivot.index) * 32),
         margin=dict(l=10, r=10, t=50, b=40),
         xaxis=dict(side="top", automargin=True),
@@ -783,7 +906,7 @@ st.caption(f"Данные за период: {selected_period}")
 # =========================================================
 total_revenue = filtered["revenue"].sum()
 onkron_revenue = filtered[filtered["onkron_competitor"] == "onkron"]["revenue"].sum()
-onkron_share = safe_div(onkron_revenue, total_revenue + 1) * 100
+onkron_share = safe_div(onkron_revenue, total_revenue) * 100
 
 prev_total_revenue = prev_filtered["revenue"].sum() if not prev_filtered.empty else 0
 prev_onkron_revenue = (
@@ -791,7 +914,7 @@ prev_onkron_revenue = (
     if not prev_filtered.empty
     else 0
 )
-prev_onkron_share = safe_div(prev_onkron_revenue, prev_total_revenue + 1) * 100
+prev_onkron_share = safe_div(prev_onkron_revenue, prev_total_revenue) * 100
 
 market_volume_delta_abs = total_revenue - prev_total_revenue
 market_volume_delta_pct = (
@@ -872,7 +995,7 @@ else:
         orientation="h",
         text="revenue",
         labels={
-            "revenue": f"Выручка, {CUR}",
+            "revenue": f"Выручка конкурентов, {CUR}",
             "segment": "Сегмент",
         },
     )
@@ -906,31 +1029,13 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 with tab1:
-    make_heatmap(
-        filtered_score,
-        value_col="onkron_share_pct",
-        title="Доля ONKRON",
-        text_func=pct_fmt,
-        color_scale="YlGn",
-    )
+    make_onkron_share_heatmap(filtered)
 
 with tab2:
-    make_heatmap(
-        filtered_score,
-        value_col="score",
-        title="Итоговый score",
-        text_func=num_fmt,
-        color_scale="YlGn",
-    )
+    make_score_heatmap(filtered)
 
 with tab3:
-    make_heatmap(
-        filtered_score,
-        value_col="revenue",
-        title="Выручка рынка",
-        text_func=lambda x: money_fmt(x, CUR),
-        color_scale="YlOrBr",
-    )
+    make_revenue_heatmap(filtered, CUR)
 
 
 # =========================================================
@@ -952,7 +1057,7 @@ settings = pd.DataFrame(
         ["Вес разрыва по доле ONKRON", "20%", "Разрыв по доле ONKRON", "Чем ниже текущая доля ONKRON, тем выше потенциал роста"],
         ["Порог высокого приоритета", THRESHOLD_HIGH, "Score", "Сегмент получает высокий приоритет, если Score не ниже этого значения"],
         ["Порог среднего приоритета", THRESHOLD_MEDIUM, "Score", "Сегмент получает средний приоритет, если Score не ниже этого значения"],
-        ["Порог минимальной выручки для Pipeline", money_fmt(PIPELINE_MIN_REVENUE, CUR), "Выручка рынка", "Минимальный размер сегмента для попадания в потенциальные возможности"],
+        ["Порог минимальной выручки для Pipeline", money_fmt(PIPELINE_MIN_REVENUE, CUR), "Выручка конкурентов", "Минимальный размер конкурентного сегмента для попадания в потенциальные возможности"],
         ["Порог максимальной доли ONKRON для Pipeline", f"{PIPELINE_MAX_ONKRON_SHARE:.2f}%", "ONKRON Share", "Сегмент считается потенциальной возможностью, если доля ONKRON не выше порога"],
     ],
     columns=["Параметр", "Значение", "Используется в", "Комментарий"],
