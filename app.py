@@ -7,6 +7,18 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+import requests
+
+try:
+    ip = requests.get(
+        "https://api.ipify.org",
+        timeout=10
+    ).text
+
+    st.write(f"Внешний IP Streamlit: {ip}")
+
+except Exception as e:
+    st.write(f"Не удалось определить IP: {e}")
 
 # =========================================================
 # PAGE CONFIG
