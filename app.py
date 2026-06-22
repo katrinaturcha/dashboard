@@ -62,10 +62,10 @@ def get_secret(name, default=None):
 
 
 DB_CONFIG = dict(
-    host=get_secret("DB_HOST"),
+    host=get_secret("DB_HOST", "81.29.139.50"),
     port=int(get_secret("DB_PORT", 3306)),
-    user=get_secret("DB_USER"),
-    password=get_secret("DB_PASSWORD"),
+    user=get_secret("DB_USER", "analyticallab"),
+    password=get_secret("DB_PASSWORD", "eL81h85tfZgIxYH"),
     database=get_secret("DB_NAME", "analyticallab"),
     charset="utf8mb4",
     cursorclass=pymysql.cursors.DictCursor,
